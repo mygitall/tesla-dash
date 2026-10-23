@@ -1362,3 +1362,89 @@ $('btnUnlock')?.addEventListener('click', () => {
     show($('quick'), !!s.commandsEnabled);
   } catch {}
 })();
+
+/* ======================= 离车自动上锁 ======================= */
+const autoLockUI = { loaded: false, lastSub: '' };
+
+function setAutoLockSub(text, kind) {
+  const el = $('autoLockSub');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'autolock-sub' + (kind ? ' ' + kind : '');
+}
+
+function renderAutoLockState(rec, settings) {
+  const on = settings ? !!settings.autoLock : false;
+  const toggle = $('autoLockToggle');
+  if (toggle && toggle.checked !== on) toggle.checked = on;
+
+  const a = rec && rec.autoLock;
+  if (!on) { setAutoLockSub('关闭中 · 打开后离车未上锁会自动锁车', ''); return; }
+
+  if (a && a.suppressFor > 0) {
+    setAutoLockSub(`手动操作后暂停 ${Math.ceil(a.suppressFor / 60)} 分钟`, 'warn');
+    return;
+  }
+  if (a && a.armed) {
+    setAutoLockSub(`已武装 · 约 ${a.delaySec} 秒后执行`, 'warn');
+    return;
+  }
+  if (a && a.lastResult === 'ok' && a.lastFireAt) {
+    const t = new Date(a.lastFireAt * 1000).toTimeString().slice(0, 5);
+    setAutoLockSub(`已开启 · 上次自动锁 ${t}`, 'ok');
+    return;
+  }
+  if (a && a.lastResult === 'failed') {
+    setAutoLockSub(`已开启 · 上次失败：${(a.lastError || '').slice(0, 40)}`, 'err');
+    return;
+  }
+  const delay = (settings && settings.autoLockDelaySec) || 60;
+  setAutoLockSub(`已开启 · 离车未锁 ${delay} 秒后自动上锁`, 'ok');
+}
+
+async function loadAutoLock() {
+  try {
+    const [settings, rec] = await Promise.all([api('/api/settings'), api('/api/recorder')]);
+    autoLockUI.loaded = true;
+    renderAutoLockState(rec, settings);
+  } catch {
+    /* 忽略 */
+  }
+}
+
+async function pollAutoLockStatus() {
+  if (!autoLockUI.loaded) return;
+  try {
+    const [settings, rec] = await Promise.all([api('/api/settings'), api('/api/recorder')]);
+    renderAutoLockState(rec, settings);
+  } catch {}
+}
+
+$('autoLockToggle')?.addEventListener('change', async (e) => {
+  const want = e.target.checked;
+  e.target.disabled = true;
+  try {
+    const s = await api('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ autoLock: want }),
+    });
+    setAutoLockSub(want ? '已开启，等待生效…' : '已关闭', want ? 'ok' : '');
+    setTimeout(loadAutoLock, 800);
+  } catch (err) {
+    e.target.checked = !want;
+    setAutoLockSub('设置失败：' + (err.message || ''), 'err');
+  } finally {
+    e.target.disabled = false;
+  }
+});
+
+// 首屏加载 + 每 20 秒刷新一次状态
+(async () => {
+  try {
+    const s = await api('/api/status');
+    if (!s.commandsEnabled) { show($('autoLockRow'), false); return; }
+  } catch {}
+  loadAutoLock();
+  setInterval(pollAutoLockStatus, 20000);
+})();

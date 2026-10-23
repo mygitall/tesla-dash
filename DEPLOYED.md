@@ -179,6 +179,81 @@ tail -20 /var/log/tesla-health.log
 
 ---
 
+## 离车自动上锁
+
+**默认关闭**，在网页「快捷操作」卡片下方手动开启。
+
+### 触发条件（全部满足）
+
+```
+is_user_present == false   ← 驾驶员离座
+locked          == false   ← 当前未锁
+shift_state     == 'P'     ← 驻车（或为空且静止）
+speed           == 0       ← 静止
+df/pf/dr/pr/ft/rt == 0     ← 六门全关
+```
+
+任一条件不满足，或状态未知（字段缺失），**一律不动手**。
+
+### 执行时序
+
+```
+T+0  采集器发现条件满足 → 武装，日志「[自动锁] 条件满足（离车未锁），60 秒后执行」
+T+60 下一轮轮询仍是同一状态 → 下发 tesla-control lock
+T+61 日志「[自动锁] 下发 lock → ✓ 成功」
+```
+
+采集间隔 60 秒 + 延迟 60 秒，**最慢约 2 分钟**锁车。这是有意的缓冲，
+避免人刚下车拿个东西就被锁。
+
+### 安全设计
+
+| 机制 | 说明 |
+|---|---|
+| 默认关闭 | 必须手动开启，避免误锁 |
+| 状态未知不动手 | `is_user_present` 缺失时不触发 |
+| 车门未关不锁 | 六门任一开启即放弃 |
+| 手动操作抑制 5 分钟 | 你在网页点了解锁/锁车，5 分钟内不自动锁 |
+| 180 秒防抖 | 同一时段不会重复下发 |
+| 事件记录 | 最近 10 条存在内存，网页可见 |
+
+### 已知局限
+
+**`is_user_present` 只感知驾驶座。** 你下了车但后排有小孩/宠物时，仍会锁车。
+特斯拉车机自带的「离车自动上锁」逻辑相同，但它响应是秒级、你能立刻反应；
+云端版延迟约 2 分钟。**车上有小孩/宠物时请手动关闭此功能。**
+
+### 配置项
+
+`data/settings.json`：
+
+```json
+{ "autoLock": true, "autoLockDelaySec": 60 }
+```
+
+或通过 API 修改：
+
+```bash
+curl -X POST https://www.zhangweiwei.cc/api/settings \
+  -H 'Content-Type: application/json' \
+  -b cookie.txt \
+  -d '{"autoLock": true, "autoLockDelaySec": 60}'
+```
+
+延迟范围被夹紧在 30~600 秒。
+
+### 排查
+
+```bash
+# 看自动锁是否触发
+docker compose logs --since 30m | grep 自动锁
+
+# 看当前状态
+curl -b cookie.txt https://www.zhangweiwei.cc/api/recorder | jq .autoLock
+```
+
+---
+
 ## 特斯拉配置
 
 | 项 | 值 |

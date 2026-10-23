@@ -471,8 +471,79 @@ function json(res, code, obj) {
 const store = openDb(DATA_DIR);
 
 // 采集器通过依赖注入拿 API 函数，避免和 server.mjs 循环引用
+/* ---------------------- 运行时设置（可在线修改） ---------------------- */
+const SETTINGS_FILE = join(DATA_DIR, 'settings.json');
+const DEFAULT_SETTINGS = { autoLock: false, autoLockDelaySec: 60 };
+
+function readSettings() {
+  try {
+    const j = JSON.parse(readFileSync(SETTINGS_FILE, 'utf8'));
+    return { ...DEFAULT_SETTINGS, ...j };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+function writeSettings(patch) {
+  const next = { ...readSettings(), ...patch };
+  // 夹紧取值范围，避免误配置
+  next.autoLock = !!next.autoLock;
+  const d = Number(next.autoLockDelaySec);
+  next.autoLockDelaySec = Number.isFinite(d) ? Math.min(600, Math.max(30, Math.round(d))) : 60;
+  mkdirSync(DATA_DIR, { recursive: true });
+  writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), { mode: 0o600 });
+  return next;
+}
+
+let SETTINGS = readSettings();
+
+/* ------------------ 自动锁：下发指令（复用唤醒 + 签名流程） ------------------ */
+async function sendAutoLock() {
+  if (MODE === 'demo') return { ok: false, message: 'demo 模式不支持' };
+  if (!ALLOW_COMMANDS) return { ok: false, message: '未开启控制功能（ALLOW_COMMANDS!=1）' };
+
+  const list = await teslaGet('/api/1/vehicles');
+  const v = (list.response || [])[0];
+  if (!v) return { ok: false, message: '账号下没有车辆' };
+
+  // 必须在线的车才能收指令；休眠就先唤醒
+  let st = v.state;
+  if (st !== 'online') {
+    try { await teslaPost(`/api/1/vehicles/${encodeURIComponent(v.id)}/wake_up`); } catch {}
+    for (let i = 0; i < 12; i++) {
+      await new Promise((r) => setTimeout(r, 2500));
+      try {
+        const l2 = await teslaGet('/api/1/vehicles');
+        const v2 = (l2.response || []).find((x) => String(x.id) === String(v.id));
+        if (v2 && v2.state === 'online') { st = 'online'; break; }
+      } catch {}
+    }
+    if (st !== 'online') return { ok: false, message: '车唤醒超时' };
+  }
+
+  const token = await getAccessToken();
+  writeFileSync(CMD_TOKEN_FILE, token, { mode: 0o600 });
+
+  const r = await runProcess(TESLA_CONTROL, [
+    '-key-file', KEY_FILE,
+    '-vin', v.vin,
+    '-token-file', CMD_TOKEN_FILE,
+    '-command-timeout', '30s',
+    '-connect-timeout', '40s',
+    'lock',
+  ], 70000);
+
+  const ok = r.code === 0;
+  const detail = (r.stderr || r.stdout || '').trim();
+  return { ok, message: ok ? null : (detail || '指令失败'), detail };
+}
+
 const recorder = createRecorder({
   db: store,
+  autoLock: {
+    enabled: () => SETTINGS.autoLock,
+    delaySec: () => SETTINGS.autoLockDelaySec,
+    fire: sendAutoLock,
+  },
   api: {
     listVehicles: () => (MODE === 'demo' ? Promise.resolve(demoVehicles) : teslaGet('/api/1/vehicles')),
     fetchVehicleData: (id) => (MODE === 'demo' ? Promise.resolve(demoData()) : fetchVehicleData(id)),
@@ -791,7 +862,27 @@ const server = createServer(async (req, res) => {
         commandsReason: !ALLOW_COMMANDS ? 'ALLOW_COMMANDS_NOT_SET' : (!APP_PASSWORD ? 'NEED_PASSWORD' : null),
         scopes: tokens?.access_token ? tokenScopes() : [],
         hasCmdScope: tokens?.access_token ? tokenScopes().includes('vehicle_cmds') : false,
+        autoLock: SETTINGS.autoLock,
+        autoLockDelaySec: SETTINGS.autoLockDelaySec,
       });
+    }
+
+    /* 运行时设置（离车自动锁等） */
+    if (path === '/api/settings') {
+      if (req.method === 'POST') {
+        let body = {};
+        try {
+          const raw = await readBody(req);
+          body = raw ? JSON.parse(raw) : {};
+        } catch { body = {}; }
+        const patch = {};
+        if ('autoLock' in body) patch.autoLock = !!body.autoLock;
+        if ('autoLockDelaySec' in body) patch.autoLockDelaySec = body.autoLockDelaySec;
+        SETTINGS = writeSettings(patch);
+        console.log(`[设置] 离车自动锁=${SETTINGS.autoLock ? '开' : '关'} 延迟=${SETTINGS.autoLockDelaySec}s`);
+        return json(res, 200, SETTINGS);
+      }
+      return json(res, 200, SETTINGS);
     }
 
     /* 车辆列表 */
@@ -892,6 +983,8 @@ const server = createServer(async (req, res) => {
       ], 70000);
 
       const ok = r.code === 0;
+      // 手动操作后 5 分钟内不自动锁，避免「远程解锁 → 又被自动锁回去」
+      if (ok) recorder.suppressAutoLock(300);
       const detail = (r.stderr || r.stdout || '').trim();
       const needPairing = /not been paired|public key/i.test(detail);
       console.log(`[指令] ${action} ${args.join(' ')} → ${ok ? '✓ 成功' : '✗ 失败'}${detail ? ' · ' + detail.slice(0, 160) : ''}`);

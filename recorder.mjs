@@ -12,7 +12,7 @@ const TRIP_END_GAP_SEC = 300;    // 停车 5 分钟算行程结束
 const CHARGE_END_GAP_SEC = 300;  // 停止充电 5 分钟算本次充电结束
 const STALE_SEC = 7200;          // 超过 2 小时没更新的开放段，强制收尾
 
-export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, log = console.log }) {
+export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, log = console.log, autoLock = null }) {
   const state = {
     running: false,
     intervalSec,
@@ -30,6 +30,91 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
 
   let timer = null;
   let prunedAt = 0;
+
+  /* ---------------------- 离车自动锁 ---------------------- */
+  // 判定：驾驶员离座 + P 档 + 静止 + 车门全关 + 未上锁
+  // 默认关闭，需在网页上手动开启
+  const lockState = {
+    armedAt: null,       // 何时开始满足条件
+    suppressUntil: 0,    // 抑制窗口（手动操作后一段时间内不自动锁）
+    lastFireAt: null,
+    lastResult: null,
+    lastError: null,
+    events: [],          // 最近 10 条，供前端展示
+  };
+
+  function pushLockEvent(ev) {
+    lockState.events.unshift({ ts: Math.floor(Date.now() / 1000), ...ev });
+    if (lockState.events.length > 10) lockState.events.length = 10;
+  }
+
+  function lockEnabled() {
+    try { return !!(autoLock && autoLock.enabled()); } catch { return false; }
+  }
+  function lockDelay() {
+    try { return Number(autoLock.delaySec()) || 60; } catch { return 60; }
+  }
+
+  function autoLockEligible(resp) {
+    const vs = resp.vehicle_state || {};
+    const ds = resp.drive_state || {};
+    if (vs.is_user_present !== false) return { ok: false, why: '驾驶座有人/状态未知' };
+    if (vs.locked !== false) return { ok: false, why: '已上锁' };
+    const sh = ds.shift_state;
+    if (sh && sh !== 'P') return { ok: false, why: `档位=${sh}` };
+    if ((ds.speed ?? 0) > 0) return { ok: false, why: '车辆在动' };
+    const openDoors = ['df', 'pf', 'dr', 'pr', 'ft', 'rt'].filter((k) => (vs[k] ?? 0) !== 0);
+    if (openDoors.length) return { ok: false, why: `车门未关(${openDoors.join(',')})` };
+    return { ok: true };
+  }
+
+  async function evaluateAutoLock(resp, nowTs) {
+    if (!autoLock) return;
+    if (!lockEnabled()) { lockState.armedAt = null; return; }
+    if (nowTs < lockState.suppressUntil) { lockState.armedAt = null; return; }
+
+    const r = autoLockEligible(resp);
+    if (!r.ok) {
+      if (lockState.armedAt) pushLockEvent({ type: 'disarm', reason: r.why });
+      lockState.armedAt = null;
+      return;
+    }
+
+    // 首次满足 → 武装，等下一轮（60 秒）确认，避免人刚下车就锁
+    if (!lockState.armedAt) {
+      lockState.armedAt = nowTs;
+      const delay = lockDelay();
+      log(`[自动锁] 条件满足（离车未锁），${delay} 秒后执行`);
+      pushLockEvent({ type: 'arm', delaySec: delay });
+      return;
+    }
+
+    const delay = lockDelay();
+    if (nowTs - lockState.armedAt < delay) return;
+    if (lockState.lastFireAt && nowTs - lockState.lastFireAt < 180) return;
+
+    lockState.armedAt = null;
+    lockState.lastFireAt = nowTs;
+    try {
+      const res = await autoLock.fire();
+      lockState.lastResult = res && res.ok ? 'ok' : 'failed';
+      lockState.lastError = res && res.ok ? null : (res && res.message) || '未知错误';
+      log(`[自动锁] 下发 lock → ${res && res.ok ? '✓ 成功' : '✗ 失败: ' + lockState.lastError}`);
+      pushLockEvent({ type: res && res.ok ? 'locked' : 'failed', message: lockState.lastError });
+    } catch (e) {
+      lockState.lastResult = 'failed';
+      lockState.lastError = e?.message || String(e);
+      log(`[自动锁] 异常：${lockState.lastError}`);
+      pushLockEvent({ type: 'failed', message: lockState.lastError });
+    }
+  }
+
+  // 手动操作后抑制自动锁，避免"远程解锁→又被锁回去"
+  function suppressAutoLock(seconds = 300) {
+    lockState.suppressUntil = Math.floor(Date.now() / 1000) + seconds;
+    lockState.armedAt = null;
+  }
+
 
   const isMoving = (d) => {
     const sp = d.speed ?? 0;
@@ -238,6 +323,7 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
       resp._ts = nowTs;
       handleSample(resp);
       state.lastError = null;
+      await evaluateAutoLock(resp, nowTs);
 
       // 每天清理一次过期采样
       if (nowTs - prunedAt > 86400) {
@@ -286,8 +372,19 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
       errors: state.errors,
       tripOpen: !!state.trip,
       chargingOpen: !!state.charging,
+      autoLock: {
+        enabled: lockEnabled(),
+        delaySec: lockDelay(),
+        armed: !!lockState.armedAt,
+        armedAgo: lockState.armedAt ? Math.floor(Date.now() / 1000) - lockState.armedAt : null,
+        suppressFor: Math.max(0, lockState.suppressUntil - Math.floor(Date.now() / 1000)),
+        lastResult: lockState.lastResult,
+        lastError: lockState.lastError,
+        lastFireAt: lockState.lastFireAt,
+        events: lockState.events,
+      },
     };
   }
 
-  return { start, stop, status, tick };
+  return { start, stop, status, tick, suppressAutoLock };
 }
