@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<title>Tesla Dash</title>
+<link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="bolt">⚡</span>
+    <span class="brand-name">TESLA <b>DASH</b></span>
+  </div>
+
+  <div class="topbar-right">
+    <span id="modeBadge" class="badge badge-muted">加载中</span>
+    <select id="vehicleSelect" class="select" hidden></select>
+    <button id="wakeBtn" class="btn btn-wake" hidden title="唤醒车辆以获取实时数据（会耗一点电）">唤醒车辆</button>
+    <button id="refreshBtn" class="btn" title="立即刷新">刷新</button>
+    <label class="switch-label">
+      <input type="checkbox" id="autoRefresh" checked>
+      <span>自动 30s</span>
+    </label>
+  </div>
+</header>
+
+<main id="main">
+
+<nav class="tabs" id="tabs" hidden>
+  <button class="tab is-active" data-tab="live">实时</button>
+  <button class="tab" data-tab="history">历史</button>
+  <span class="tab-spacer"></span>
+  <span id="recBadge" class="rec-badge">采集启动中…</span>
+</nav>
+
+  <!-- 未授权提示 -->
+  <section id="gate" class="gate" hidden>
+    <div class="gate-icon">🔒</div>
+    <h2>还没有授权特斯拉账号</h2>
+    <p id="gateHint" class="muted">点击下方按钮开始 OAuth 授权。</p>
+    <div class="gate-actions">
+      <a id="loginLink" class="btn btn-primary" href="/auth/login">用特斯拉账号登录 →</a>
+      <button id="pasteTokenBtn" class="btn" hidden>粘贴 access_token</button>
+    </div>
+    <div id="pasteBox" class="paste-box" hidden>
+      <p class="muted small">把已有的 access_token 存进 <code>.env</code> 的 <code>TESLA_ACCESS_TOKEN=</code>，然后重启服务。仅用于本地调试。</p>
+    </div>
+  </section>
+
+  <!-- 错误 -->
+  <section id="errorBox" class="error-box" hidden>
+    <strong id="errorTitle">出错了</strong>
+    <p id="errorMsg" class="muted small"></p>
+    <pre id="errorDetail" class="detail" hidden></pre>
+  </section>
+
+  <!-- 主仪表盘 -->
+  <div id="dash" hidden>
+
+    <section class="hero">
+      <div class="hero-left">
+        <div class="car-line">
+          <h1 id="carName">—</h1>
+          <span id="carState" class="pill">—</span>
+        </div>
+        <p id="carSub" class="muted small">—</p>
+
+        <div class="battery-ring" id="batteryRing">
+          <div class="battery-inner">
+            <div class="battery-pct"><span id="batteryPct">—</span><small>%</small></div>
+            <div class="battery-label">电量</div>
+            <div class="battery-nominal" id="batteryNominal"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-right">
+        <div class="stat-row">
+          <div class="stat"><span class="stat-k">续航</span><span class="stat-v" id="range">—</span></div>
+          <div class="stat"><span class="stat-k">充电</span><span class="stat-v" id="chargeState">—</span></div>
+          <div class="stat"><span class="stat-k">总里程</span><span class="stat-v" id="odometer">—</span></div>
+          <div class="stat"><span class="stat-k">车内</span><span class="stat-v" id="insideTemp">—</span></div>
+        </div>
+
+        <div class="spark-wrap">
+          <div class="spark-head"><span class="muted small">本次会话电量趋势</span><span id="sparkRange" class="muted small"></span></div>
+          <svg id="spark" class="spark" viewBox="0 0 300 60" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#3ddc84" stop-opacity=".45"/>
+                <stop offset="100%" stop-color="#3ddc84" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <path id="sparkArea" fill="url(#sg)" d=""></path>
+            <path id="sparkLine" fill="none" stroke="#3ddc84" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" d=""></path>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+
+      <div class="card">
+        <h3>🔌 充电</h3>
+        <dl class="kv">
+          <dt>状态</dt><dd id="c_state">—</dd>
+          <dt>充电功率</dt><dd id="c_power">—</dd>
+          <dt>电压 / 电流</dt><dd id="c_vi">—</dd>
+          <dt>充电限值</dt><dd id="c_limit">—</dd>
+          <dt>本次充入</dt><dd id="c_added">—</dd>
+          <dt>充满还需</dt><dd id="c_eta">—</dd>
+          <dt>充电口</dt><dd id="c_port">—</dd>
+          <dt>快充</dt><dd id="c_fast">—</dd>
+          <dt>充电电流</dt><dd id="c_amps">—</dd>
+          <dt>充电限值范围</dt><dd id="c_limit_range">—</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3>❄️ 空调</h3>
+        <dl class="kv">
+          <dt>运行中</dt><dd id="h_on">—</dd>
+          <dt>设定温度</dt><dd id="h_set">—</dd>
+          <dt>车内 / 车外</dt><dd id="h_temps">—</dd>
+          <dt>风量</dt><dd id="h_fan">—</dd>
+          <dt>座椅加热 左/右</dt><dd id="h_seat">—</dd>
+          <dt>方向盘加热</dt><dd id="h_wheel">—</dd>
+          <dt>前/后除霜</dt><dd id="h_defrost">—</dd>
+          <dt>预热中</dt><dd id="h_pre">—</dd>
+          <dt>座椅通风 左/右</dt><dd id="h_fan_seat">—</dd>
+          <dt>座舱过热保护</dt><dd id="h_cop">—</dd>
+          <dt>空调保持</dt><dd id="h_keeper">—</dd>
+          <dt>电池加热</dt><dd id="h_batt_heat">—</dd>
+        </dl>
+      </div>
+
+      <div class="card ctrl-card" id="ctrlCard" hidden>
+        <h3>🎛️ 远程控制</h3>
+
+        <div class="ctrl-group">
+          <span class="ctrl-label">空调</span>
+          <div class="btn-row">
+            <button class="btn btn-sm" data-act="climate-on">开启</button>
+            <button class="btn btn-sm" data-act="climate-off">关闭</button>
+          </div>
+        </div>
+
+        <div class="ctrl-group">
+          <span class="ctrl-label">温度</span>
+          <div class="btn-row">
+            <button class="btn btn-sm btn-icon" id="tempDown" aria-label="降低温度">−</button>
+            <span class="ctrl-value" id="tempValue">22.0 °C</span>
+            <button class="btn btn-sm btn-icon" id="tempUp" aria-label="升高温度">+</button>
+            <button class="btn btn-sm btn-accent" id="tempApply">应用</button>
+          </div>
+        </div>
+
+        <div class="ctrl-group">
+          <span class="ctrl-label">座椅加热 左</span>
+          <div class="btn-row" data-seat="front-left">
+            <button class="btn btn-sm" data-level="off">关</button>
+            <button class="btn btn-sm" data-level="low">低</button>
+            <button class="btn btn-sm" data-level="medium">中</button>
+            <button class="btn btn-sm" data-level="high">高</button>
+          </div>
+        </div>
+
+        <div class="ctrl-group">
+          <span class="ctrl-label">座椅加热 右</span>
+          <div class="btn-row" data-seat="front-right">
+            <button class="btn btn-sm" data-level="off">关</button>
+            <button class="btn btn-sm" data-level="low">低</button>
+            <button class="btn btn-sm" data-level="medium">中</button>
+            <button class="btn btn-sm" data-level="high">高</button>
+          </div>
+        </div>
+
+        <div class="ctrl-group">
+          <span class="ctrl-label">方向盘加热</span>
+          <div class="btn-row" data-wheel>
+            <button class="btn btn-sm" data-wheel-state="on">开</button>
+            <button class="btn btn-sm" data-wheel-state="off">关</button>
+          </div>
+        </div>
+
+        <p class="ctrl-status" id="ctrlStatus"></p>
+      </div>
+
+      <div class="card">
+        <h3>🚗 车辆状态</h3>
+        <dl class="kv">
+          <dt>锁车</dt><dd id="v_locked">—</dd>
+          <dt>车门</dt><dd id="v_doors">—</dd>
+          <dt>前/后备箱</dt><dd id="v_trunks">—</dd>
+          <dt>哨兵模式</dt><dd id="v_sentry">—</dd>
+          <dt>代客模式</dt><dd id="v_valet">—</dd>
+          <dt>远程启动</dt><dd id="v_remote">—</dd>
+          <dt>胎压 bar</dt><dd id="v_tpms">—</dd>
+          <dt>固件版本</dt><dd id="v_fw">—</dd>
+          <dt>车窗 前左/前右/后左/后右</dt><dd id="v_windows">—</dd>
+          <dt>档位</dt><dd id="v_shift">—</dd>
+          <dt>胎压推荐</dt><dd id="v_tpms_rec">—</dd>
+          <dt>驾驶辅助</dt><dd id="v_ap">—</dd>
+          <dt>车型配置</dt><dd id="v_config">—</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3>📍 位置</h3>
+        <dl class="kv">
+          <dt>坐标</dt><dd id="l_coord">—</dd>
+          <dt>航向</dt><dd id="l_heading">—</dd>
+          <dt>GPS 时间</dt><dd id="l_gps">—</dd>
+          <dt>数据新鲜度</dt><dd id="l_age">—</dd>
+        </dl>
+        <a id="mapLink" class="btn btn-map" href="#" target="_blank" rel="noopener">在地图中打开 →</a>
+        <p class="muted tiny note">GPS 只在车机唤醒时更新，坐标可能是几十分钟前的。看「数据新鲜度」。</p>
+      </div>
+
+      <div class="card">
+        <h3>🎵 影音与记录</h3>
+        <dl class="kv">
+          <dt>正在播放</dt><dd id="m_title">—</dd>
+          <dt>艺人</dt><dd id="m_artist">—</dd>
+          <dt>来源</dt><dd id="m_source">—</dd>
+          <dt>播放状态</dt><dd id="m_status">—</dd>
+          <dt>音量</dt><dd id="m_volume">—</dd>
+          <dt>行车记录仪</dt><dd id="m_dashcam">—</dd>
+          <dt>可保存片段</dt><dd id="m_dashcam_save">—</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3>⚙️ 系统与预约</h3>
+        <dl class="kv">
+          <dt>OTA 状态</dt><dd id="s_ota">—</dd>
+          <dt>待更新版本</dt><dd id="s_ota_ver">—</dd>
+          <dt>下载 / 安装</dt><dd id="s_ota_prog">—</dd>
+          <dt>限速模式</dt><dd id="s_speed_limit">—</dd>
+          <dt>预约充电</dt><dd id="s_sched_charge">—</dd>
+          <dt>预热计划</dt><dd id="s_sched_pre">—</dd>
+          <dt>服务模式</dt><dd id="s_service">—</dd>
+        </dl>
+      </div>
+
+    </section>
+
+    <footer class="foot">
+      <span id="lastUpdated" class="muted small">—</span>
+      <span class="dot">·</span>
+      <span id="tokenInfo" class="muted small">—</span>
+    </footer>
+  </div>
+
+  <!-- ==================== 历史视图 ==================== -->
+  <div id="viewHistory" hidden>
+
+    <section class="stat-grid" id="histStats"></section>
+
+    <section class="card chart-card">
+      <div class="chart-head">
+        <h3>电量曲线</h3>
+        <div class="chart-range">
+          <button class="btn btn-xs" data-hours="6">6h</button>
+          <button class="btn btn-xs is-active" data-hours="24">24h</button>
+          <button class="btn btn-xs" data-hours="168">7d</button>
+        </div>
+      </div>
+      <svg id="batChart" viewBox="0 0 800 200" preserveAspectRatio="none" class="bigchart"></svg>
+      <div id="chartEmpty" class="chart-empty" hidden>还没有足够的采样点，继续采集一会儿再看</div>
+    </section>
+
+    <section class="grid2">
+      <div class="card">
+        <h3>🚗 行程记录</h3>
+        <div id="tripList" class="table-wrap"><p class="muted small">加载中…</p></div>
+      </div>
+      <div class="card">
+        <h3>🔌 充电记录</h3>
+        <div id="chargeList" class="table-wrap"><p class="muted small">加载中…</p></div>
+      </div>
+    </section>
+
+    <p class="muted tiny note" id="histNote">
+      行程判定：连续行驶后停车满 5 分钟算一次行程结束。充电同理。
+      数据从采集器启动那一刻开始累积，之前的无法补录。
+    </p>
+  </div>
+
+  <!-- ==================== 详情弹窗 ==================== -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-card">
+      <header class="modal-head">
+        <h2 id="modalTitle">详情</h2>
+        <button id="modalClose" class="btn btn-xs">关闭 ✕</button>
+      </header>
+      <div class="modal-body">
+        <div id="modalStats" class="modal-stats"></div>
+        <div id="modalMapWrap" class="modal-map-wrap" hidden><div id="modalMap"></div></div>
+        <div id="modalChartWrap" class="modal-chart-wrap" hidden>
+          <div class="chart-head">
+            <h3 id="modalChartTitle">曲线</h3>
+            <span id="modalChartHint" class="muted small"></span>
+          </div>
+          <svg id="modalChart" viewBox="0 0 800 180" preserveAspectRatio="none" class="bigchart"></svg>
+        </div>
+        <p id="modalEmpty" class="muted small" hidden>这段记录没有可用的逐点数据（采集器启动前或车休眠期间）。</p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

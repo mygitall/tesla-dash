@@ -1,0 +1,22 @@
+services:
+  tesla-dash:
+    build: .
+    container_name: tesla-dash
+    restart: unless-stopped
+    # 只绑本机，由 Caddy 反代；不要把 8787 直接暴露到公网
+    ports:
+      - "127.0.0.1:8787:8787"
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /app/data
+      HOST: 0.0.0.0
+      PORT: 8787
+    volumes:
+      - ./data:/app/data          # 数据库 / token / 会话密钥（必须持久化）
+      - ./keys:/app/keys:ro       # 私钥只读挂载，不打进镜像
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

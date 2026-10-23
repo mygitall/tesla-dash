@@ -1,0 +1,20 @@
+# 绝不提交
+.env
+.env.*
+data/
+keys/
+.tokens.json
+*.pem
+bin/tesla-control
+
+# 构建产物 / 临时
+dist/
+node_modules/
+*.png
+*.zip
+netlify-drop/
+netlify-rewrite/
+tesla-public-key.zip
+
+# 系统
+.DS_Store
