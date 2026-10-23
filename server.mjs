@@ -477,7 +477,12 @@ const BATTERY_KWH = Number(process.env.BATTERY_KWH || 75);
 const ELECTRICITY_PRICE = Number(process.env.ELECTRICITY_PRICE || 1.6);
 
 const SETTINGS_FILE = join(DATA_DIR, 'settings.json');
-const DEFAULT_SETTINGS = { autoLock: false, autoLockDelaySec: 60 };
+const DEFAULT_SETTINGS = {
+  autoLock: false,
+  autoLockDelaySec: 60,
+  // 官方 App 显示的历史累计（导入前的手工基线）
+  chargeBaseline: { sessions: 0, kwh: 0, durationMin: 0, updatedAt: null },
+};
 
 function readSettings() {
   try {
@@ -905,6 +910,26 @@ const server = createServer(async (req, res) => {
     }
 
     /* ---------- App 专用：一次拿全的精简状态 ---------- */
+    /* ---------- 充电历史基线（手工导入官方 App 数字） ---------- */
+    if (path === '/api/charge/baseline') {
+      if (req.method === 'GET') {
+        return json(res, 200, SETTINGS.chargeBaseline || { sessions: 0, kwh: 0, updatedAt: null });
+      }
+      if (req.method === 'POST') {
+        const body = await readBody(req, 8 * 1024).catch(() => null);
+        let payload = {};
+        try { payload = JSON.parse(body || '{}'); } catch {}
+        const baseline = {
+          sessions: Math.max(0, Number(payload.sessions) || 0),
+          kwh: Math.max(0, Number(payload.kwh) || 0),
+          durationMin: Math.max(0, Math.round(Number(payload.durationMin) || 0)),
+          updatedAt: new Date().toISOString(),
+        };
+        SETTINGS = writeSettings({ chargeBaseline: baseline });
+        return json(res, 200, { ok: true, chargeBaseline: SETTINGS.chargeBaseline });
+      }
+    }
+
     /* ---------- 充电统计：按年月筛选 ---------- */
     if (path === '/api/charge/months') {
       const sessions = store.chargingSessionsFromSamples();
@@ -930,6 +955,52 @@ const server = createServer(async (req, res) => {
       const year = Number(url.searchParams.get('year')) || nowCN.getUTCFullYear();
       const monthRaw = url.searchParams.get('month');
       const month = monthRaw && monthRaw !== 'all' ? Number(monthRaw) : null;
+      const allTime = url.searchParams.get('range') === 'all';
+
+      if (allTime) {
+        const base = (SETTINGS.chargeBaseline || { sessions: 0, kwh: 0 });
+        const sessions = store.chargingSessionsFromSamples().sort((a, b) => b.startTs - a.startTs);
+        const sum = sessions.reduce((acc, x) => {
+          acc.energyKwh += x.energyKwh;
+          acc.minutes += x.durationMin;
+          acc.peakPower = Math.max(acc.peakPower, x.peakPower);
+          return acc;
+        }, { energyKwh: 0, minutes: 0, peakPower: 0 });
+
+        const totalSessions = sessions.length + (base.sessions || 0);
+        const totalKwh = Math.round((sum.energyKwh + (base.kwh || 0)) * 10) / 10;
+
+        // 时长：优先用基线里手工填的；没填就按「总电量 ÷ 假设功率」估算
+        let baseMinutes = base.durationMin || 0;
+        let minutesEstimated = false;
+        let assumedKw = 0;
+        if (!baseMinutes && (base.kwh || 0) > 0) {
+          // 用本系统实测过的最大功率做假设，没有就用 7kW
+          assumedKw = Math.round((sum.peakPower > 1 ? sum.peakPower : 7) * 10) / 10;
+          baseMinutes = Math.round((base.kwh / assumedKw) * 60);
+          minutesEstimated = true;
+        }
+
+        return json(res, 200, {
+          year, month: null, allTime: true,
+          baseline: {
+            sessions: base.sessions || 0,
+            kwh: base.kwh || 0,
+            durationMin: base.durationMin || 0,
+            updatedAt: base.updatedAt || null,
+          },
+          totals: {
+            count: totalSessions,
+            energyKwh: totalKwh,
+            minutes: sum.minutes + baseMinutes,
+            minutesEstimated,
+            assumedKw,
+            peakPower: Math.round(sum.peakPower * 10) / 10,
+            avgKwh: totalSessions ? Math.round((totalKwh / totalSessions) * 10) / 10 : 0,
+          },
+          sessions,
+        });
+      }
 
       // 东八区该月/该年的起止（转回 UTC 秒）
       const startUtc = Date.UTC(year, month ? month - 1 : 0, 1) - 8 * 3600 * 1000;
