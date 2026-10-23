@@ -481,7 +481,7 @@ const DEFAULT_SETTINGS = {
   autoLock: false,
   autoLockDelaySec: 60,
   // 官方 App 显示的历史累计（导入前的手工基线）
-  chargeBaseline: { sessions: 0, kwh: 0, durationMin: 0, updatedAt: null },
+  chargeBaseline: { sessions: 0, kwh: 0, durationMin: 0, assumedKw: 60, updatedAt: null },
 };
 
 function readSettings() {
@@ -923,6 +923,7 @@ const server = createServer(async (req, res) => {
           sessions: Math.max(0, Number(payload.sessions) || 0),
           kwh: Math.max(0, Number(payload.kwh) || 0),
           durationMin: Math.max(0, Math.round(Number(payload.durationMin) || 0)),
+          assumedKw: Math.max(1, Number(payload.assumedKw) || 60),
           updatedAt: new Date().toISOString(),
         };
         SETTINGS = writeSettings({ chargeBaseline: baseline });
@@ -975,8 +976,8 @@ const server = createServer(async (req, res) => {
         let minutesEstimated = false;
         let assumedKw = 0;
         if (!baseMinutes && (base.kwh || 0) > 0) {
-          // 用本系统实测过的最大功率做假设，没有就用 7kW
-          assumedKw = Math.round((sum.peakPower > 1 ? sum.peakPower : 7) * 10) / 10;
+          // 用用户指定的假设充电功率（默认 60kW 快充桩）
+          assumedKw = Math.max(1, Number(base.assumedKw) || 60);
           baseMinutes = Math.round((base.kwh / assumedKw) * 60);
           minutesEstimated = true;
         }
@@ -987,6 +988,7 @@ const server = createServer(async (req, res) => {
             sessions: base.sessions || 0,
             kwh: base.kwh || 0,
             durationMin: base.durationMin || 0,
+            assumedKw: base.assumedKw || 60,
             updatedAt: base.updatedAt || null,
           },
           totals: {
