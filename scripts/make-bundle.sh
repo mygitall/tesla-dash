@@ -19,7 +19,7 @@ rm -f "$OUT"
 tar czf "$OUT" \
   server.mjs db.mjs recorder.mjs \
   public bin keys data \
-  Dockerfile docker-compose.yml .dockerignore .env \
+  Dockerfile docker-entrypoint.sh docker-compose.yml .dockerignore .env \
   scripts/cloud-bootstrap.sh scripts/pair-key.sh \
   README.md DEPLOY-FREE.md
 

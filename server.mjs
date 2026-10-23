@@ -709,7 +709,9 @@ const server = createServer(async (req, res) => {
 
     /* ---------------------- 访问守卫 ---------------------- */
     // 公钥必须公开（Tesla 服务端要抓）；其余全部要登录
-    const isPublic = path.startsWith('/.well-known/');
+    // /auth/callback 必须公开：特斯拉回调时浏览器没有会话 cookie，
+    // 若要求登录会把 code 丢在重定向里，导致续期失败
+    const isPublic = path.startsWith('/.well-known/') || path === '/auth/callback';
     if (APP_PASSWORD && !isPublic && !isAuthed(req)) {
       if (path.startsWith('/api/')) {
         return json(res, 401, { error: 'UNAUTHORIZED', message: '需要登录' });

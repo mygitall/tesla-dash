@@ -124,6 +124,12 @@ set_env PORT "8787"
 set_env ALLOW_COMMANDS "1"
 set_env MODE "fleet"
 chmod 600 .env
+
+# compose 会对 env_file 做变量替换，密钥里的 $ 会被吞 → 就地转义（保留原始备份）
+cp .env ".env.raw.bak.$(date +%s)"
+sed -i.bak 's/\$/$$/g' .env && rm -f .env.bak
+chmod 600 .env
+green "  .env 中的 \$ 已转义（防止 compose 吞掉密钥），原值备份为 .env.raw.bak.*"
 green "  回调地址 → https://${DOMAIN}/auth/callback"
 green "  访问密码 → 已设置"
 

@@ -18,3 +18,14 @@ tesla-public-key.zip
 
 # 系统
 .DS_Store
+
+# iOS 构建产物
+Tesla.ipa
+*.ipa
+ios/build/
+ios/DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# iOS App 图标必须提交（覆盖上面的 *.png 规则）
+!ios/TeslaDash/Assets.xcassets/**/*.png

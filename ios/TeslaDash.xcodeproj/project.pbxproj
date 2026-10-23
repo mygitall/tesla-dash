@@ -1,0 +1,208 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 50;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0A95BFF061B2366F85415FABBAB87B5A /* WebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23D3C6A4B8C06AB3D8536B59AF40D9D1 /* WebView.swift */; };
+		13BF55A2BCC35A1490A6D167374E0ADF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 94B45E48FAED459274EC2B60FD9E9A9A /* Assets.xcassets */; };
+		806FE7A31D36619B30D2CB1D117B3046 /* TeslaDashApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0EFC35B54755A520F6D2B3077A6F8E /* TeslaDashApp.swift */; };
+		A9EFF3ACD326547EF5183A135AFF470A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25691C1FA6C3170FC18C96A5B6D791A5 /* SettingsView.swift */; };
+		D7D333D07B254EE1A204DC7A371442C0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A7D7D3EAEBAA2F0E8F714AECB0CC52 /* ContentView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		14A7D7D3EAEBAA2F0E8F714AECB0CC52 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		23D3C6A4B8C06AB3D8536B59AF40D9D1 /* WebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebView.swift; sourceTree = "<group>"; };
+		25691C1FA6C3170FC18C96A5B6D791A5 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		570C5223794018A2F2E1906607F128F0 /* TeslaDash.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TeslaDash.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		94B45E48FAED459274EC2B60FD9E9A9A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		FB0EFC35B54755A520F6D2B3077A6F8E /* TeslaDashApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeslaDashApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		30CBDD7A3DF4A66B153F26720F3FF4E5 /* TeslaDash */ = {
+			isa = PBXGroup;
+			children = (
+				94B45E48FAED459274EC2B60FD9E9A9A /* Assets.xcassets */,
+				14A7D7D3EAEBAA2F0E8F714AECB0CC52 /* ContentView.swift */,
+				25691C1FA6C3170FC18C96A5B6D791A5 /* SettingsView.swift */,
+				FB0EFC35B54755A520F6D2B3077A6F8E /* TeslaDashApp.swift */,
+				23D3C6A4B8C06AB3D8536B59AF40D9D1 /* WebView.swift */,
+			);
+			path = TeslaDash;
+			sourceTree = "<group>";
+		};
+		819D6918993711E0F268D5DF40C8C0EC /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				570C5223794018A2F2E1906607F128F0 /* TeslaDash.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		EFC1EE429650D167B197D75EF69EE8D0 = {
+			isa = PBXGroup;
+			children = (
+				30CBDD7A3DF4A66B153F26720F3FF4E5 /* TeslaDash */,
+				819D6918993711E0F268D5DF40C8C0EC /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		EB9E942AB691C18DFFFF1DBC61B22776 /* TeslaDash */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 78BA18A2ED338027630DD5329A9CF2B6 /* Build configuration list for PBXNativeTarget "TeslaDash" */;
+			buildPhases = (
+				06790513808D63FD3ED0806930B08274 /* Sources */,
+				B2D330188240C6B3B51EC07E5622F347 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TeslaDash;
+			productName = TeslaDash;
+			productReference = 570C5223794018A2F2E1906607F128F0 /* TeslaDash.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B81C3566AD7BD298B9FBEE909AE494AE /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 1000;
+				TargetAttributes = {
+					EB9E942AB691C18DFFFF1DBC61B22776 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 18C03A01F796EE7E4BE721891C0C8F02 /* Build configuration list for PBXProject "TeslaDash" */;
+			compatibilityVersion = "Xcode 9.3";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+			);
+			mainGroup = EFC1EE429650D167B197D75EF69EE8D0;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				EB9E942AB691C18DFFFF1DBC61B22776 /* TeslaDash */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B2D330188240C6B3B51EC07E5622F347 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				13BF55A2BCC35A1490A6D167374E0ADF /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		06790513808D63FD3ED0806930B08274 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D7D333D07B254EE1A204DC7A371442C0 /* ContentView.swift in Sources */,
+				A9EFF3ACD326547EF5183A135AFF470A /* SettingsView.swift in Sources */,
+				806FE7A31D36619B30D2CB1D117B3046 /* TeslaDashApp.swift in Sources */,
+				0A95BFF061B2366F85415FABBAB87B5A /* WebView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		6828BC09C9BF935A06666A5A73DA9D4A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				INFOPLIST_FILE = TeslaDash/Info.plist;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.zhangweiwei.tesladash;
+				PRODUCT_NAME = Tesla;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		83A0E11D300DAC992188A9A63D4462A3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				INFOPLIST_FILE = TeslaDash/Info.plist;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.zhangweiwei.tesladash;
+				PRODUCT_NAME = Tesla;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B6B262A9BEE11E756C58DDC4C323BA2C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		C8B6810DF80E306CDE789A2B5CC4A4E0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		18C03A01F796EE7E4BE721891C0C8F02 /* Build configuration list for PBXProject "TeslaDash" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C8B6810DF80E306CDE789A2B5CC4A4E0 /* Debug */,
+				B6B262A9BEE11E756C58DDC4C323BA2C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		78BA18A2ED338027630DD5329A9CF2B6 /* Build configuration list for PBXNativeTarget "TeslaDash" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				83A0E11D300DAC992188A9A63D4462A3 /* Debug */,
+				6828BC09C9BF935A06666A5A73DA9D4A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = "";
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = B81C3566AD7BD298B9FBEE909AE494AE /* Project object */;
+}

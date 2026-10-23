@@ -1,0 +1,48 @@
+name: TeslaDash
+options:
+  bundleIdPrefix: com.zhangweiwei
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  TeslaDash:
+    type: application
+    platform: iOS
+    sources:
+      - path: TeslaDash
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.zhangweiwei.tesladash
+        PRODUCT_NAME: Tesla
+        TARGETED_DEVICE_FAMILY: "1"          # 仅 iPhone
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    info:
+      path: TeslaDash/Info.plist
+      properties:
+        CFBundleDisplayName: Tesla
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UIViewControllerBasedStatusBarAppearance: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIRequiresFullScreen: true
+        ITSAppUsesNonExemptEncryption: false
+        # 服务器是 Tailscale 内网 IP + 明文 HTTP，IP 字面量无法用 NSExceptionDomains 声明
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
