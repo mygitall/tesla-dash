@@ -276,6 +276,57 @@ curl -b cookie.txt https://www.zhangweiwei.cc/api/recorder | jq .autoLock
 
 ---
 
+## 免密访问（密钥链接）
+
+不想每次输密码，用密钥链接换取 30 天会话。
+
+### 密钥位置
+
+```
+/opt/tesla-dash/data/.access-key
+```
+
+24 字节随机十六进制，首次启动自动生成并持久化（包含在每日备份里）。
+
+查看：
+
+```bash
+ssh root@167.179.86.244 'cat /opt/tesla-dash/data/.access-key'
+```
+
+### 用法
+
+| 场景 | 做法 |
+|---|---|
+| 浏览器 | 打开一次 `https://www.zhangweiwei.cc/k/<密钥>` → 自动登录，之后直接访问主域名即可 |
+| iOS App | 登录页选「密钥」，粘贴密钥或整条链接 |
+
+也支持 `https://www.zhangweiwei.cc/?k=<密钥>`。
+
+### 安全设计
+
+| 行为 | 结果 |
+|---|---|
+| 密钥正确 | 302 → 种 `dash_sess` cookie（30 天） |
+| 密钥错误 | **404**（不暴露任何信息，也不提示"密钥错误"） |
+| 不带 cookie 访问首页 | 仍然 302 → `/login` |
+| 密码登录 | **保留**，作为后备手段 |
+
+> 密钥等于凭据，**不要发到公开群聊或截图分享**。
+> 如果泄漏，删掉 `data/.access-key` 再重启容器即可换新密钥。
+
+### 换密钥
+
+```bash
+ssh root@167.179.86.244 '
+  rm /opt/tesla-dash/data/.access-key
+  cd /opt/tesla-dash && docker compose restart'
+# 新密钥会打印在启动日志：
+docker compose logs --tail=20 | grep 免密
+```
+
+---
+
 ## Token 生命周期
 
 | token | 寿命 | 续期方式 |

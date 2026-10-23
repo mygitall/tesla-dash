@@ -575,6 +575,21 @@ if (!sessionSecret) {
 // cookie 值绑定当前密码：改密码后旧 cookie 自动失效
 const SESSION_VALUE = createHmac('sha256', sessionSecret).update('pw:' + APP_PASSWORD).digest('hex').slice(0, 40);
 
+// 免密访问密钥：/k/<key> 可换取登录会话，用于「不输密码也能进」
+const ACCESS_KEY_FILE = join(DATA_DIR, '.access-key');
+const ACCESS_KEY = (() => {
+  try {
+    const k = readFileSync(ACCESS_KEY_FILE, 'utf8').trim();
+    if (k.length >= 24) return k;
+  } catch {}
+  const k = randomBytes(24).toString('hex');
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(ACCESS_KEY_FILE, k, { mode: 0o600 });
+  } catch {}
+  return k;
+})();
+
 function parseCookies(req) {
   const raw = req.headers.cookie || '';
   const out = {};
@@ -778,6 +793,22 @@ const server = createServer(async (req, res) => {
       return res.end();
     }
 
+    /* ---------- 免密登录：/k/<key> 或 /?k=<key> ---------- */
+    if (path === '/k' || path.startsWith('/k/') || (path === '/' && url.searchParams.get('k'))) {
+      const given = path.startsWith('/k/')
+        ? decodeURIComponent(path.slice(3))
+        : (url.searchParams.get('k') || '');
+      if (ACCESS_KEY && given && safeEqual(given, ACCESS_KEY)) {
+        res.writeHead(302, {
+          'Set-Cookie': `${COOKIE_NAME}=${SESSION_VALUE}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${30 * 86400}`,
+          Location: '/',
+        });
+        return res.end();
+      }
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('Not found');
+    }
+
     /* ---------------------- 访问守卫 ---------------------- */
     // 公钥必须公开（Tesla 服务端要抓）；其余全部要登录
     // /auth/callback 必须公开：特斯拉回调时浏览器没有会话 cookie，
@@ -865,6 +896,71 @@ const server = createServer(async (req, res) => {
         autoLock: SETTINGS.autoLock,
         autoLockDelaySec: SETTINGS.autoLockDelaySec,
       });
+    }
+
+    /* ---------- App 专用：一次拿全的精简状态 ---------- */
+    if (path === '/api/app/summary') {
+      const MI_TO_KM = 1.609344;
+      const list = await teslaGet('/api/1/vehicles');
+      const v = (list.response || [])[0];
+      if (!v) return json(res, 404, { error: 'NO_VEHICLE', message: '账号下没有车辆' });
+
+      const out = {
+        id: v.id,
+        name: v.display_name,
+        vin: v.vin,
+        state: v.state,
+        commandsEnabled: ALLOW_COMMANDS && !!APP_PASSWORD,
+        autoLock: SETTINGS.autoLock,
+        autoLockDelaySec: SETTINGS.autoLockDelaySec,
+        ts: Math.floor(Date.now() / 1000),
+      };
+
+      // 车在线才去取实时数据；休眠时不唤醒（省电）
+      if (v.state === 'online') {
+        try {
+          const d = await teslaGet(`/api/1/vehicles/${encodeURIComponent(v.id)}/vehicle_data`);
+          const r = d.response || {};
+          const vs = r.vehicle_state || {};
+          const ds = r.drive_state || {};
+          const cs = r.charge_state || {};
+          const cvs = r.climate_state || {};
+
+          // 特斯拉不同车型/固件返回的字段不一样，按优先级兜底
+          const kmCandidates = [
+            cs.rated_battery_range_km,
+            cs.battery_range_km,
+            cs.est_battery_range_km,
+            cs.rated_battery_range != null ? cs.rated_battery_range * MI_TO_KM : null,
+            cs.battery_range != null ? cs.battery_range * MI_TO_KM : null,
+            cs.est_battery_range != null ? cs.est_battery_range * MI_TO_KM : null,
+            cs.ideal_battery_range != null ? cs.ideal_battery_range * MI_TO_KM : null,
+          ];
+          const ratedKm = kmCandidates.find((x) => x != null) ?? null;
+
+          Object.assign(out, {
+            battery: cs.usable_battery_level ?? cs.battery_level ?? null,
+            batteryNominal: cs.battery_level ?? null,
+            rangeKm: ratedKm != null ? Math.round(ratedKm) : null,
+            charging: cs.charging_state || null,
+            chargeLimit: cs.charge_limit_soc ?? null,
+            locked: vs.locked ?? null,
+            userPresent: vs.is_user_present ?? null,
+            odometerKm: vs.odometer != null ? Math.round(vs.odometer * MI_TO_KM) : null,
+            insideTemp: cvs.inside_temp ?? null,
+            outsideTemp: cvs.outside_temp ?? null,
+            climateOn: cvs.is_climate_on ?? null,
+            setTemp: cvs.driver_temp_setting ?? null,
+            lat: ds.latitude ?? null,
+            lon: ds.longitude ?? null,
+            speed: ds.speed ?? null,
+            shift: ds.shift_state ?? null,
+          });
+        } catch (e) {
+          out.dataError = e?.message || String(e);
+        }
+      }
+      return json(res, 200, out);
     }
 
     /* 运行时设置（离车自动锁等） */
@@ -1150,6 +1246,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  远程控制 : ${!ALLOW_COMMANDS ? '关闭（ALLOW_COMMANDS 未设为 1）' : !APP_PASSWORD ? '⚠ 已开启但无密码，已强制拒绝' : '已开启'}`);
   console.log('');
   console.log(`  打开 →  http://localhost:${PORT}`);
+  console.log(`  免密 →  /k/${ACCESS_KEY}`);
   if (HOST !== '127.0.0.1') console.log(`  监听 →  ${HOST}:${PORT}（对外可访问）`);
   console.log('');
 
