@@ -553,7 +553,8 @@ const recorder = createRecorder({
     fetchVehicleData: (id) => (MODE === 'demo' ? Promise.resolve(demoData()) : fetchVehicleData(id)),
   },
   intervalSec: Math.max(15, Number(process.env.POLL_INTERVAL_SEC) || 60),
-  retentionDays: Math.max(1, Number(process.env.RETENTION_DAYS) || 90),
+  // 0 或未设置 = 永久保留（不自动清理历史采样）
+  retentionDays: Math.max(0, Number(process.env.RETENTION_DAYS) ?? 0),
   log: (...a) => console.log(new Date().toLocaleTimeString('zh-CN', { hour12: false }), ...a),
 });
 
@@ -904,6 +905,66 @@ const server = createServer(async (req, res) => {
     }
 
     /* ---------- App 专用：一次拿全的精简状态 ---------- */
+    /* ---------- 充电统计：按年月筛选 ---------- */
+    if (path === '/api/charge/months') {
+      const sessions = store.chargingSessionsFromSamples();
+      const map = new Map();
+      for (const x of sessions) {
+        const d = new Date((x.startTs + 8 * 3600) * 1000);
+        const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+        const cur = map.get(key) || { key, year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, count: 0, kwh: 0, minutes: 0, peak: 0 };
+        cur.count += 1;
+        cur.kwh += x.energyKwh;
+        cur.minutes += x.durationMin;
+        cur.peak = Math.max(cur.peak, x.peakPower);
+        map.set(key, cur);
+      }
+      const months = [...map.values()]
+        .map((m) => ({ ...m, kwh: Math.round(m.kwh * 10) / 10, peak: Math.round(m.peak * 10) / 10 }))
+        .sort((a, b) => b.key.localeCompare(a.key));
+      return json(res, 200, { months, totalSessions: sessions.length });
+    }
+
+    if (path === '/api/charge/summary') {
+      const nowCN = new Date(Date.now() + 8 * 3600 * 1000);
+      const year = Number(url.searchParams.get('year')) || nowCN.getUTCFullYear();
+      const monthRaw = url.searchParams.get('month');
+      const month = monthRaw && monthRaw !== 'all' ? Number(monthRaw) : null;
+
+      // 东八区该月/该年的起止（转回 UTC 秒）
+      const startUtc = Date.UTC(year, month ? month - 1 : 0, 1) - 8 * 3600 * 1000;
+      const endUtc = month
+        ? Date.UTC(year, month, 1) - 8 * 3600 * 1000
+        : Date.UTC(year + 1, 0, 1) - 8 * 3600 * 1000;
+      const fromTs = Math.floor(startUtc / 1000);
+      const toTs = Math.floor(endUtc / 1000);
+
+      const all = store.chargingSessionsFromSamples();
+      const picked = all
+        .filter((x) => x.startTs >= fromTs && x.startTs < toTs)
+        .sort((a, b) => b.startTs - a.startTs);
+
+      const totals = picked.reduce((acc, x) => {
+        acc.count += 1;
+        acc.energyKwh += x.energyKwh;
+        acc.minutes += x.durationMin;
+        acc.peakPower = Math.max(acc.peakPower, x.peakPower);
+        acc.energyKwh = acc.energyKwh;
+        return acc;
+      }, { count: 0, energyKwh: 0, minutes: 0, peakPower: 0 });
+      totals.energyKwh = Math.round(totals.energyKwh * 10) / 10;
+      totals.peakPower = Math.round(totals.peakPower * 10) / 10;
+      totals.avgKwh = totals.count ? Math.round((totals.energyKwh / totals.count) * 10) / 10 : 0;
+
+      return json(res, 200, {
+        year,
+        month,
+        range: { fromTs, toTs },
+        totals,
+        sessions: picked,
+      });
+    }
+
     if (path === '/api/app/summary') {
       const MI_TO_KM = 1.609344;
       const list = await teslaGet('/api/1/vehicles');

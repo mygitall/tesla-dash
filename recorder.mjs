@@ -355,8 +355,8 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
 
       await evaluateAutoLock(resp, nowTs);
 
-      // 每天清理一次过期采样
-      if (nowTs - prunedAt > 86400) {
+      // 每天清理一次过期采样（retentionDays <= 0 表示永久保留，不清理）
+      if (retentionDays > 0 && nowTs - prunedAt > 86400) {
         const cutoff = nowTs - retentionDays * 86400;
         const n = db.prune(cutoff);
         if (n) log(`[清理] 删除 ${n} 条超过 ${retentionDays} 天的采样`);
@@ -375,7 +375,7 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
   function start() {
     if (state.running) return;
     state.running = true;
-    log(`[采集] 启动 · 间隔 ${intervalSec}s · 保留 ${retentionDays} 天`);
+    log(`[采集] 启动 · 间隔 ${intervalSec}s · 保留 ${retentionDays > 0 ? retentionDays + ' 天' : '永久'}`);
     state.fastUntil = Math.floor(Date.now() / 1000) + 600;
     tick();
     timer = setInterval(tick, intervalSec * 1000);
