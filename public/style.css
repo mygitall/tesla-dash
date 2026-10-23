@@ -544,3 +544,100 @@ table.dt tbody tr:hover td { color: #fff; }
 .ctrl-status.ok { color: var(--green); }
 .ctrl-status.err { color: var(--red); }
 .ctrl-status.busy { color: var(--amber); }
+
+/* ============================ 快捷操作（手机大按钮）============================ */
+.quick {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px 18px 18px;
+  margin-bottom: 16px;
+}
+
+.quick-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  min-height: 22px;
+}
+
+.quick-chip {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.quick-chip.locked { color: var(--green); border-color: rgba(61,220,132,.4); background: rgba(61,220,132,.1); }
+.quick-chip.unlocked { color: var(--amber); border-color: rgba(245,165,36,.45); background: rgba(245,165,36,.1); }
+
+.quick-hint {
+  font-size: 12px;
+  color: var(--dim);
+  flex: 1;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quick-hint.ok { color: var(--green); }
+.quick-hint.err { color: var(--red); }
+.quick-hint.busy { color: var(--amber); }
+
+.quick-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.bigbtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 20px 10px;
+  min-height: 96px;
+  border-radius: 15px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .1s, background .15s, border-color .15s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.bigbtn:active { transform: scale(.97); }
+.bigbtn:disabled { opacity: .4; cursor: not-allowed; }
+
+.bigbtn-ico { font-size: 28px; line-height: 1; }
+.bigbtn-label { font-size: 15px; }
+
+.bigbtn-lock { border-color: rgba(61,220,132,.3); background: rgba(61,220,132,.07); }
+.bigbtn-lock:hover { background: rgba(61,220,132,.14); border-color: rgba(61,220,132,.55); }
+
+.bigbtn-unlock { border-color: rgba(91,156,246,.3); background: rgba(91,156,246,.07); }
+.bigbtn-unlock:hover { background: rgba(91,156,246,.14); border-color: rgba(91,156,246,.55); }
+
+/* 两次确认状态 */
+.bigbtn-unlock.arming {
+  border-color: var(--amber);
+  background: rgba(245,165,36,.16);
+  color: var(--amber);
+  animation: armPulse .9s ease-in-out infinite;
+}
+@keyframes armPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245,165,36,.35); }
+  50% { box-shadow: 0 0 0 8px rgba(245,165,36,0); }
+}
+
+@media (max-width: 520px) {
+  .bigbtn { min-height: 104px; }
+  .bigbtn-ico { font-size: 32px; }
+}

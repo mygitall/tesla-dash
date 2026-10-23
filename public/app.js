@@ -214,6 +214,8 @@ function renderVehicle(v) {
 
   // ---- 车辆状态卡片 ----
   setText('v_locked', yesNo(vs.locked, '已锁', '未锁'), vs.locked ? 'ok' : 'bad');
+  // 同步快捷操作区的锁车状态
+  if (typeof renderLockChip === 'function') renderLockChip(vs.locked);
   // Tesla 字段：df 前左 / pf 前右 / dr 后左 / pr 后右；ft 前备箱 / rt 后备箱
   const door = (x) => (x === 0 ? '关' : x === 1 ? '开' : '—');
   // 紧凑成「前 关关 · 后 关关」，避免中文长标签把数值挤到下一行
@@ -1262,3 +1264,101 @@ async function initControls() {
   } catch {}
 }
 initControls();
+
+/* ======================= 快捷操作：锁车 / 解锁 ======================= */
+const quick = { armed: 0, busy: false };
+
+function quickSay(text, kind) {
+  const el = $('quickHint');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'quick-hint' + (kind ? ' ' + kind : '');
+}
+
+function renderLockChip(locked) {
+  const chip = $('quickChip');
+  if (!chip) return;
+  if (locked === null || locked === undefined) {
+    chip.textContent = '—';
+    chip.className = 'quick-chip';
+  } else if (locked) {
+    chip.textContent = '🔒 已锁车';
+    chip.className = 'quick-chip locked';
+  } else {
+    chip.textContent = '🔓 未锁车';
+    chip.className = 'quick-chip unlocked';
+  }
+}
+
+function resetUnlockBtn() {
+  const b = $('btnUnlock');
+  if (!b) return;
+  b.classList.remove('arming');
+  b.querySelector('.bigbtn-label').textContent = '解锁';
+}
+
+async function quickCmd(action) {
+  if (quick.busy) return;
+  const id = state.currentId || (state.vehicles[0] && state.vehicles[0].id);
+  quick.busy = true;
+  $('btnLock').disabled = true;
+  $('btnUnlock').disabled = true;
+  quickSay(action === 'lock' ? '正在锁车…' : '正在解锁…', 'busy');
+
+  try {
+    const r = await api(`/api/cmd/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    quickSay(action === 'lock' ? '✓ 已锁车' : '✓ 已解锁', 'ok');
+    // 乐观更新状态
+    renderLockChip(action === 'lock');
+    // 稍后拉一次真实状态
+    setTimeout(() => { refresh(true).catch(() => {}); }, 2000);
+  } catch (e) {
+    quickSay('✗ ' + (e.message || '失败'), 'err');
+    // 未配对 / 缺权限时给出引导
+    if (e.data && e.data.needPairing) {
+      quickSay('⚠️ 车辆未配对虚拟密钥', 'err');
+    } else if (/missing scopes|unauthorized/i.test(e.message || '')) {
+      quickSay('⚠️ 登录缺少车辆命令权限', 'err');
+    }
+  } finally {
+    quick.busy = false;
+    $('btnLock').disabled = false;
+    $('btnUnlock').disabled = false;
+  }
+}
+
+$('btnLock')?.addEventListener('click', () => {
+  resetUnlockBtn();
+  quickCmd('lock');
+});
+
+// 解锁需要点两次（3 秒内），防止误触把车打开
+$('btnUnlock')?.addEventListener('click', () => {
+  const b = $('btnUnlock');
+  const now = Date.now();
+  if (now > quick.armed) {
+    quick.armed = now + 3000;
+    b.classList.add('arming');
+    b.querySelector('.bigbtn-label').textContent = '再点确认';
+    quickSay('3 秒内再点一次确认解锁', 'busy');
+    setTimeout(() => {
+      if (Date.now() >= quick.armed) { quick.armed = 0; resetUnlockBtn(); quickSay(''); }
+    }, 3100);
+    return;
+  }
+  quick.armed = 0;
+  resetUnlockBtn();
+  quickCmd('unlock');
+});
+
+// 根据 /api/status 决定是否显示
+(async () => {
+  try {
+    const s = await api('/api/status');
+    show($('quick'), !!s.commandsEnabled);
+  } catch {}
+})();

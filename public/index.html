@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b0d10">
 <title>Tesla Dash</title>
+<meta name="theme-color" content="#0b0d10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tesla">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="64x64" href="/icons/favicon-64.png">
 <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
@@ -61,6 +69,25 @@
 
   <!-- 主仪表盘 -->
   <div id="dash" hidden>
+    <!-- 快捷操作（手机端大按钮） -->
+    <section class="quick" id="quick" hidden>
+      <div class="quick-head">
+        <span class="quick-chip" id="quickChip">—</span>
+        <span class="quick-hint" id="quickHint"></span>
+      </div>
+      <div class="quick-btns">
+        <button class="bigbtn bigbtn-lock" id="btnLock">
+          <span class="bigbtn-ico">🔒</span>
+          <span class="bigbtn-label">锁车</span>
+        </button>
+        <button class="bigbtn bigbtn-unlock" id="btnUnlock">
+          <span class="bigbtn-ico">🔓</span>
+          <span class="bigbtn-label">解锁</span>
+        </button>
+      </div>
+    </section>
+
+
 
     <section class="hero">
       <div class="hero-left">

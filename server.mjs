@@ -14,6 +14,8 @@ import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, chmodSync } from 'node:fs';
 import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { gzipSync } from 'node:zlib';
+import { statSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb } from './db.mjs';
@@ -387,15 +389,52 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
 };
 
-async function serveStatic(res, relPath) {
+// 压缩缓存：key = 文件路径，value = { mtime, gz, etag }
+const GZ_CACHE = new Map();
+const COMPRESSIBLE = new Set(['.js', '.css', '.html', '.json', '.svg', '.txt', '.map']);
+
+async function serveStatic(req, res, relPath) {
   const safe = relPath.replace(/\.\./g, '').replace(/^\/+/, '');
   const file = join(ROOT, 'public', safe || 'index.html');
   try {
+    const st = statSync(file);
+    const ext = extname(file).toLowerCase();
+    const type = MIME[ext] || 'application/octet-stream';
+
+    // 静态资源缓存策略：vendor 永久缓存，应用文件每次协商（304 极快）
+    const cacheControl = /^vendor\//.test(safe)
+      ? 'public, max-age=31536000, immutable'
+      : 'no-cache';
+
+    const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
+
+    // 客户端已有最新版本 → 304，只回几十字节
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, { ETag: etag, 'Cache-Control': cacheControl });
+      return res.end();
+    }
+
+    const acceptsGzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+    const head = {
+      'Content-Type': type,
+      'Cache-Control': cacheControl,
+      ETag: etag,
+      Vary: 'Accept-Encoding',
+    };
+
+    if (acceptsGzip && COMPRESSIBLE.has(ext)) {
+      let hit = GZ_CACHE.get(file);
+      if (!hit || hit.mtime !== st.mtimeMs) {
+        const raw = await readFile(file);
+        hit = { mtime: st.mtimeMs, gz: gzipSync(raw, { level: 6 }) };
+        GZ_CACHE.set(file, hit);
+      }
+      res.writeHead(200, { ...head, 'Content-Encoding': 'gzip', 'Content-Length': hit.gz.length });
+      return res.end(hit.gz);
+    }
+
     const buf = await readFile(file);
-    res.writeHead(200, {
-      'Content-Type': MIME[extname(file)] || 'application/octet-stream',
-      'Cache-Control': 'no-cache',
-    });
+    res.writeHead(200, { ...head, 'Content-Length': buf.length });
     res.end(buf);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -404,8 +443,27 @@ async function serveStatic(res, relPath) {
 }
 
 function json(res, code, obj) {
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify(obj));
+  const body = Buffer.from(JSON.stringify(obj));
+  const req = res.req;
+  const acceptsGzip = req && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+  // 超过 1KB 才压：小响应压缩反而更慢（series 这类大响应收益明显）
+  if (acceptsGzip && body.length > 1024) {
+    const gz = gzipSync(body, { level: 5 });
+    res.writeHead(code, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Content-Encoding': 'gzip',
+      Vary: 'Accept-Encoding',
+      'Content-Length': gz.length,
+    });
+    return res.end(gz);
+  }
+  res.writeHead(code, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Length': body.length,
+  });
+  res.end(body);
 }
 
 /* -------------------------------- 路由 -------------------------------- */
@@ -555,6 +613,8 @@ const KEY_FILE = process.env.TESLA_KEY_FILE || join(ROOT, 'keys', 'private-key.p
 const CMD_TOKEN_FILE = join(DATA_DIR, '.cmd-token');
 
 const CMD_SPECS = {
+  'lock':                  () => ['lock'],
+  'unlock':                () => ['unlock'],
   'climate-on':            () => ['climate-on'],
   'climate-off':           () => ['climate-off'],
   'set-temp':              (b) => {
@@ -948,10 +1008,12 @@ const server = createServer(async (req, res) => {
     }
 
     /* 静态文件 */
-    if (path === '/' || path === '/index.html') return serveStatic(res, 'index.html');
-    if (path.startsWith('/public/')) return serveStatic(res, path.slice('/public/'.length));
-    if (path.startsWith('/vendor/')) return serveStatic(res, path);
-    if (path === '/app.js' || path === '/style.css') return serveStatic(res, path);
+    if (path === '/' || path === '/index.html') return serveStatic(req, res, 'index.html');
+    if (path.startsWith('/public/')) return serveStatic(req, res, path.slice('/public/'.length));
+    if (path.startsWith('/vendor/')) return serveStatic(req, res, path);
+    if (path === '/app.js' || path === '/style.css') return serveStatic(req, res, path);
+    if (path === '/manifest.json') return serveStatic(req, res, path);
+    if (path.startsWith('/icons/')) return serveStatic(req, res, path);
 
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('404');

@@ -6,9 +6,9 @@ for L in server tunnel caffeinate backup; do
   line=$(launchctl list | grep "com.tesladash.$L")
   if [ -n "$line" ]; then
     pid=$(echo "$line" | awk '{print $1}')
-    [ "$pid" = "-" ] && st="待命（定时任务）" || st="运行中 PID=$pid"
+    [ "$pid" = "-" ] && st="待命" || st="运行中 PID=$pid"
   else
-    st="✗ 未安装"
+    st="已停用"
   fi
   printf "  %-26s %s\n" "$L" "$st"
 done
@@ -19,17 +19,22 @@ code=$(curl -s -o /dev/null -m 5 -w "%{http_code}" http://127.0.0.1:8787/.well-k
 [ "$code" = "200" ] && echo "  ✓ http://localhost:8787 正常" || echo "  ✗ 本地服务异常 (HTTP $code)"
 
 echo
-echo "════════ 公网地址 ════════"
-url=$(cat /tmp/tesla-tunnel-url.txt 2>/dev/null)
-if [ -n "$url" ]; then
-  code=$(curl -s -o /dev/null -m 15 -w "%{http_code}" "$url/login" 2>/dev/null)
-  echo "  $url"
-  [ "$code" = "200" ] && echo "  ✓ 可访问" || echo "  ⚠ 返回 HTTP $code（可能在重连）"
+echo "════════ 访问入口 ════════"
+TSIP=$(/usr/local/bin/tailscale ip -4 2>/dev/null | head -1)
+LANIP=$(ipconfig getifaddr en0 2>/dev/null || echo "-")
+
+printf "  本机      : http://localhost:8787  "
+[ "$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://127.0.0.1:8787/login 2>/dev/null)" = "200" ] && echo "✓" || echo "✗"
+
+if [ -n "$TSIP" ]; then
+  printf "  Tailscale : http://%s:8787  " "$TSIP"
+  [ "$(curl -s -o /dev/null -m 8 -w '%{http_code}' "http://$TSIP:8787/login" 2>/dev/null)" = "200" ] && echo "✓（手机用这个）" || echo "✗"
 else
-  echo "  ✗ 还没有分配地址，检查: tail -20 ~/Library/Logs/tesla-dash/tunnel.log"
+  echo "  Tailscale : 未运行"
 fi
 
-echo
+printf "  局域网    : http://%s:8787\n" "$LANIP"
+
 echo "════════ 采集器 ════════"
 pw=$(grep '^APP_PASSWORD=' .env 2>/dev/null | cut -d= -f2-)
 [ -n "$pw" ] && curl -s -c /tmp/.st.jar -X POST -d "password=$pw" -o /dev/null http://127.0.0.1:8787/login 2>/dev/null
