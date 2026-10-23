@@ -294,6 +294,12 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
   /** 车进入休眠/离线：行程立即收尾；充电留给后续样本判定 */
   function onSleep(nowTs) {
     state.sleeps++;
+    // 车休眠时清零武装状态：否则唤醒后会用过期时间戳立刻锁车，
+    // 跳过 60 秒确认，可能误锁
+    if (lockState.armedAt) {
+      lockState.armedAt = null;
+      pushLockEvent({ type: 'disarm', reason: '车辆休眠' });
+    }
     if (state.trip) closeTrip(state.trip.lastMoveTs);
     if (state.charging && nowTs - state.charging.lastChargingTs >= STALE_SEC) {
       closeCharging(state.charging.lastChargingTs);
