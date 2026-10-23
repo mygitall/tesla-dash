@@ -20,6 +20,9 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
     lastSampleTs: null,
     lastError: null,
     lastVehicleState: null,
+    lastFullTs: 0,          // 上次拉完整 vehicle_data 的时间
+    fastUntil: 0,           // 活跃窗口截止时间（此期间才高频采样）
+    skipped: 0,             // 为避免吵醒车辆而跳过的次数
     polls: 0,
     samples: 0,
     sleeps: 0,
@@ -204,6 +207,7 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
       charger_power: cs.charger_power,
       charger_voltage: cs.charger_voltage,
       charger_current: cs.charger_actual_current,
+      charge_rate: cs.charge_rate,
       energy_added: cs.charge_energy_added,
       charge_limit: cs.charge_limit_soc,
       time_to_full: cs.time_to_full_charge,
@@ -322,6 +326,17 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
         onSleep(nowTs);
         return; // 休眠时不唤醒，省电也避免被限流
       }
+      // 车辆已在线：只有「活跃窗口」内才拉完整数据。
+      // 否则跳过——每次 vehicle_data 都会重置车的休眠计时器（约 15 分钟），
+      // 60 秒一拉会让车 24 小时不睡，实测多耗 8%/天。
+      const fast = nowTs < state.fastUntil;
+      const gap = nowTs - state.lastFullTs;
+      if (!fast && gap < 3600) {
+        state.skipped++;
+        return;
+      }
+      state.lastFullTs = nowTs;
+
       const data = await api.fetchVehicleData(v.id);
       const resp = data.response;
       if (!resp) throw new Error('返回里没有 response');
@@ -329,6 +344,15 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
       resp._ts = nowTs;
       handleSample(resp);
       state.lastError = null;
+
+      // 行驶或充电时保持高频采样
+      const speed = resp?.drive_state?.speed ?? 0;
+      const shift = resp?.drive_state?.shift_state;
+      const chg = resp?.charge_state?.charging_state;
+      if (speed > 0 || (shift && shift !== 'P') || chg === 'Charging' || chg === 'Starting') {
+        state.fastUntil = Math.max(state.fastUntil, nowTs + 900);
+      }
+
       await evaluateAutoLock(resp, nowTs);
 
       // 每天清理一次过期采样
@@ -352,6 +376,7 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
     if (state.running) return;
     state.running = true;
     log(`[采集] 启动 · 间隔 ${intervalSec}s · 保留 ${retentionDays} 天`);
+    state.fastUntil = Math.floor(Date.now() / 1000) + 600;
     tick();
     timer = setInterval(tick, intervalSec * 1000);
     if (timer.unref) timer.unref();
@@ -368,6 +393,8 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
     return {
       running: state.running,
       intervalSec: state.intervalSec,
+      fastMode: Math.floor(Date.now() / 1000) < state.fastUntil,
+      skippedPolls: state.skipped,
       lastPollAt: state.lastPollAt,
       lastSampleTs: state.lastSampleTs,
       lastError: state.lastError,
@@ -392,5 +419,10 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
     };
   }
 
-  return { start, stop, status, tick, suppressAutoLock };
+  /** 有用户活动（下发指令、打开 App、BLE 操作）时，临时恢复高频采样 */
+  function markActive(seconds = 900) {
+    state.fastUntil = Math.max(state.fastUntil, Math.floor(Date.now() / 1000) + seconds);
+  }
+
+  return { start, stop, status, tick, suppressAutoLock, markActive };
 }

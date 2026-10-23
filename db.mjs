@@ -96,21 +96,25 @@ export function openDb(dir) {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, 'tesla.db');
   const db = new DatabaseSync(file);
+  // 兼容旧库：补上后加的列
   db.exec(SCHEMA);
+
+  // 兼容旧库：补上后加的列
+  try { db.exec('ALTER TABLE samples ADD COLUMN charge_rate REAL'); } catch {}
 
   const stmts = {
     insertSample: db.prepare(`
       INSERT OR REPLACE INTO samples (
         ts,state,speed,power,shift_state,moving,lat,lon,heading,
         battery,usable_battery,range_mi,ideal_range_mi,est_range_mi,
-        charging_state,charger_power,charger_voltage,charger_current,
+        charging_state,charger_power,charger_voltage,charger_current,charge_rate,
         energy_added,charge_limit,time_to_full,
         inside_temp,outside_temp,climate_on,
         odometer,locked,sentry,tpms_fl,tpms_fr,tpms_rl,tpms_rr,car_version
       ) VALUES (
         ?,?,?,?,?,?,?,?,?,
         ?,?,?,?,?,
-        ?,?,?,?,
+        ?,?,?,?,?,
         ?,?,?,
         ?,?,?,
         ?,?,?,?,?,?,?,?
@@ -176,7 +180,7 @@ export function openDb(dir) {
         s.ts, s.state ?? null, s.speed ?? null, s.power ?? null, s.shift_state ?? null, s.moving ?? null,
         s.lat ?? null, s.lon ?? null, s.heading ?? null,
         s.battery ?? null, s.usable_battery ?? null, s.range_mi ?? null, s.ideal_range_mi ?? null, s.est_range_mi ?? null,
-        s.charging_state ?? null, s.charger_power ?? null, s.charger_voltage ?? null, s.charger_current ?? null,
+        s.charging_state ?? null, s.charger_power ?? null, s.charger_voltage ?? null, s.charger_current ?? null, s.charge_rate ?? null,
         s.energy_added ?? null, s.charge_limit ?? null, s.time_to_full ?? null,
         s.inside_temp ?? null, s.outside_temp ?? null, s.climate_on ?? null,
         s.odometer ?? null, s.locked ?? null, s.sentry ?? null,
@@ -202,6 +206,26 @@ export function openDb(dir) {
         c.start_range_mi ?? null, c.end_range_mi ?? null,
         c.lat ?? null, c.lon ?? null, c.samples ?? null
       );
+    },
+
+    /** 最近一条采样（车辆休眠时用于兜底展示） */
+    latestSample() {
+      return db.prepare('SELECT * FROM samples ORDER BY ts DESC LIMIT 1').get() || null;
+    },
+
+    /** 今日统计：从 trips 表按起始时间聚合 */
+    todayStats(sinceTs) {
+      const t = db.prepare(`
+        SELECT COUNT(*) AS trips,
+               COALESCE(SUM(distance_mi), 0) AS distance_mi,
+               COALESCE(SUM(end_ts - start_ts), 0) AS duration_sec
+        FROM trips WHERE start_ts >= ?
+      `).get(sinceTs) || {};
+      return {
+        trips: t.trips || 0,
+        distanceMi: t.distance_mi || 0,
+        durationSec: t.duration_sec || 0,
+      };
     },
 
     listTrips(limit = 50, offset = 0) {

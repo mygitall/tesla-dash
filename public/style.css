@@ -703,3 +703,16 @@ table.dt tbody tr:hover td { color: #fff; }
   background: #3ddc84;
 }
 .switch input:disabled + .switch-track { opacity: .4; }
+
+/* 无钥匙启动：稍微突出，其余控制项保持克制 */
+.ctrl-group.ctrl-highlight {
+  border-left: 2px solid var(--green);
+  padding-left: 10px;
+  margin-left: -12px;
+}
+.ctrl-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.5;
+}

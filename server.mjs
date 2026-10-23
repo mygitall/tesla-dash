@@ -472,6 +472,10 @@ const store = openDb(DATA_DIR);
 
 // 采集器通过依赖注入拿 API 函数，避免和 server.mjs 循环引用
 /* ---------------------- 运行时设置（可在线修改） ---------------------- */
+// 电池容量与电价（用于估算剩余电量、今日花费）
+const BATTERY_KWH = Number(process.env.BATTERY_KWH || 75);
+const ELECTRICITY_PRICE = Number(process.env.ELECTRICITY_PRICE || 1.6);
+
 const SETTINGS_FILE = join(DATA_DIR, 'settings.json');
 const DEFAULT_SETTINGS = { autoLock: false, autoLockDelaySec: 60 };
 
@@ -700,6 +704,7 @@ const CMD_TOKEN_FILE = join(DATA_DIR, '.cmd-token');
 
 const CMD_SPECS = {
   'lock':                  () => ['lock'],
+  'drive':                 () => ['drive'],   // 无钥匙启动：授权驾驶 2 分钟
   'unlock':                () => ['unlock'],
   'climate-on':            () => ['climate-on'],
   'climate-off':           () => ['climate-off'],
@@ -955,11 +960,73 @@ const server = createServer(async (req, res) => {
             lon: ds.longitude ?? null,
             speed: ds.speed ?? null,
             shift: ds.shift_state ?? null,
+
+            // 充电细节（对应 UI 的充电卡片）
+            chargerPower: cs.charger_power ?? null,
+            chargerVoltage: cs.charger_voltage ?? null,
+            chargerCurrent: cs.charger_actual_current ?? null,
+            chargeRate: cs.charge_rate != null ? Math.round(cs.charge_rate * MI_TO_KM) : null,
+            energyAddedKwh: cs.charge_energy_added ?? null,
+            minutesToFull: cs.minutes_to_full_charge ?? null,
+            chargePortOpen: cs.charge_port_door_open ?? null,
+            fastCharger: cs.fast_charger_present ?? null,
+
+            // 剩余电量（kWh）按电池容量估算，容量可用 BATTERY_KWH 覆盖
+            batteryKwh: cs.battery_level != null
+              ? Math.round(cs.battery_level / 100 * BATTERY_KWH * 10) / 10
+              : null,
+            batteryCapacityKwh: BATTERY_KWH,
           });
+
+          // 今日统计（按东八区当天 0 点）
+          try {
+            const now = new Date();
+            const localMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
+            const st = store.todayStats(Math.floor(localMidnight));
+            const distKm = st.distanceMi * MI_TO_KM;
+            const kwh = distKm * 0.15;          // 粗略能耗估算
+            out.today = {
+              distanceKm: Math.round(distKm * 10) / 10,
+              driveMinutes: Math.round(st.durationSec / 60),
+              energyKwh: Math.round(kwh * 10) / 10,
+              cost: Math.round(kwh * ELECTRICITY_PRICE * 100) / 100,
+              trips: st.trips,
+            };
+          } catch (e) {
+            out.today = null;
+          }
         } catch (e) {
           out.dataError = e?.message || String(e);
         }
       }
+          // 车辆休眠/离线时，用最后一次采样兜底，保证界面不空
+          if (out.battery == null) {
+            try {
+              const last = store.latestSample();
+              if (last) {
+                out.stale = true;
+                out.lastSeenTs = last.ts;
+                out.battery = last.battery ?? null;
+                out.batteryNominal = last.usable_battery ?? last.battery ?? null;
+                out.rangeKm = last.range_mi != null ? Math.round(last.range_mi * MI_TO_KM) : null;
+                out.odometerKm = last.odometer != null ? Math.round(last.odometer * MI_TO_KM) : null;
+                out.insideTemp = last.inside_temp ?? null;
+                out.outsideTemp = last.outside_temp ?? null;
+                out.locked = last.locked === 1 ? true : last.locked === 0 ? false : null;
+                out.charging = last.charging_state ?? null;
+                out.chargerPower = last.charger_power ?? null;
+                out.chargerVoltage = last.charger_voltage ?? null;
+                out.chargerCurrent = last.charger_current ?? null;
+                out.chargeRate = last.charge_rate != null
+                  ? Math.round(last.charge_rate * MI_TO_KM) : null;
+                out.energyAddedKwh = last.energy_added ?? null;
+                if (out.battery != null) {
+                  out.batteryKwh = Math.round(out.battery / 100 * BATTERY_KWH * 10) / 10;
+                }
+              }
+            } catch (e) {}
+          }
+
       return json(res, 200, out);
     }
 
@@ -1080,7 +1147,11 @@ const server = createServer(async (req, res) => {
 
       const ok = r.code === 0;
       // 手动操作后 5 分钟内不自动锁，避免「远程解锁 → 又被自动锁回去」
-      if (ok) recorder.suppressAutoLock(300);
+      if (ok) {
+        recorder.suppressAutoLock(300);
+        // 有人操作 → 15 分钟内恢复高频采样（其余时间让车休眠省电）
+        recorder.markActive?.(900);
+      }
       const detail = (r.stderr || r.stdout || '').trim();
       const needPairing = /not been paired|public key/i.test(detail);
       console.log(`[指令] ${action} ${args.join(' ')} → ${ok ? '✓ 成功' : '✗ 失败'}${detail ? ' · ' + detail.slice(0, 160) : ''}`);
