@@ -12,7 +12,7 @@ const TRIP_END_GAP_SEC = 300;    // 停车 5 分钟算行程结束
 const CHARGE_END_GAP_SEC = 300;  // 停止充电 5 分钟算本次充电结束
 const STALE_SEC = 7200;          // 超过 2 小时没更新的开放段，强制收尾
 
-export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, log = console.log, autoLock = null }) {
+export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, log = console.log, autoLock = null, onData = null }) {
   const state = {
     running: false,
     intervalSec,
@@ -343,6 +343,7 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
       resp.state = v.state;
       resp._ts = nowTs;
       handleSample(resp);
+      try { onData?.(resp); } catch (e) { log(`[事件] 处理失败: ${e.message}`); }
       state.lastError = null;
 
       // 行驶或充电时保持高频采样

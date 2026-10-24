@@ -20,6 +20,7 @@ import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb } from './db.mjs';
 import { createRecorder } from './recorder.mjs';
+import { createNotifier } from './notifier.mjs';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 
@@ -559,6 +560,25 @@ const recorder = createRecorder({
   },
   intervalSec: Math.max(15, Number(process.env.POLL_INTERVAL_SEC) || 60),
   // 0 或未设置 = 永久保留（不自动清理历史采样）
+  // 事件推送（BARK_URL 存在时启用）
+  onData: (await (async () => {
+    const barkUrl = process.env.BARK_URL;
+    if (!barkUrl) return null;
+    const notifier = createNotifier({
+      push: async (title, body) => {
+        const url = `${barkUrl.replace(/\/$/, '')}/${encodeURIComponent('Tesla·' + title)}/${encodeURIComponent(body)}?group=tesla&level=active`;
+        const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!r.ok) throw new Error(`Bark HTTP ${r.status}`);
+      },
+      batteryKwh: BATTERY_KWH,
+      lowBatteryPct: Number(process.env.LOW_BATTERY_PCT) || 20,
+      unlockedMinutes: Number(process.env.UNLOCKED_MINUTES) || 10,
+      stateFile: join(DATA_DIR, '.events-state.json'),
+      log: (m) => console.log(m),
+    });
+    return (d) => notifier.handle(d, Math.floor(Date.now() / 1000));
+  })()),
+
   retentionDays: Math.max(0, Number(process.env.RETENTION_DAYS) ?? 0),
   log: (...a) => console.log(new Date().toLocaleTimeString('zh-CN', { hour12: false }), ...a),
 });
@@ -849,11 +869,26 @@ const server = createServer(async (req, res) => {
       return json(res, 200, store.stats());
     }
 
-    /* 行程列表 */
+    /* 行程列表（含单位换算，供 App 直接用） */
     if (path === '/api/trips') {
       const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 50));
       const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
-      return json(res, 200, { items: store.listTrips(limit, offset), limit, offset });
+      const MI_TO_KM_ = 1.609344;
+      const trips = store.listTrips(limit, offset).map((t) => ({
+        id: t.id,
+        startTs: t.start_ts,
+        endTs: t.end_ts,
+        distanceKm: Math.round((t.distance_mi || 0) * MI_TO_KM_ * 10) / 10,
+        durationMin: Math.round((t.end_ts - t.start_ts) / 60),
+        startBattery: t.start_battery,
+        endBattery: t.end_battery,
+        maxSpeedKmh: Math.round((t.max_speed || 0) * 1.609),
+        avgSpeedKmh: Math.round((t.avg_speed || 0) * 1.609),
+        startLat: t.start_lat, startLon: t.start_lon,
+        endLat: t.end_lat, endLon: t.end_lon,
+        samples: t.samples,
+      }));
+      return json(res, 200, { trips, items: trips, limit, offset });
     }
 
     /* 充电列表 */
@@ -940,11 +975,9 @@ const server = createServer(async (req, res) => {
         SETTINGS = writeSettings({ chargeBaseline: baseline });
         return json(res, 200, { ok: true, chargeBaseline: SETTINGS.chargeBaseline });
       }
-    }
-
-    /* ---------- 充电统计：按年月筛选 ---------- */
+    }    /* ---------- 充电统计：按年月筛选 ---------- */
     if (path === '/api/charge/months') {
-      const sessions = store.chargingSessionsFromSamples();
+      const sessions = store.chargingSessionsFromSamples(BATTERY_KWH);
       const map = new Map();
       for (const x of sessions) {
         const d = new Date((x.startTs + 8 * 3600) * 1000);
@@ -971,7 +1004,7 @@ const server = createServer(async (req, res) => {
 
       if (allTime) {
         const base = (SETTINGS.chargeBaseline || { sessions: 0, kwh: 0 });
-        const sessions = store.chargingSessionsFromSamples().sort((a, b) => b.startTs - a.startTs);
+        const sessions = store.chargingSessionsFromSamples(BATTERY_KWH).sort((a, b) => b.startTs - a.startTs);
         const sum = sessions.reduce((acc, x) => {
           acc.energyKwh += x.energyKwh;
           acc.minutes += x.durationMin;
@@ -1023,7 +1056,7 @@ const server = createServer(async (req, res) => {
       const fromTs = Math.floor(startUtc / 1000);
       const toTs = Math.floor(endUtc / 1000);
 
-      const all = store.chargingSessionsFromSamples();
+      const all = store.chargingSessionsFromSamples(BATTERY_KWH);
       const picked = all
         .filter((x) => x.startTs >= fromTs && x.startTs < toTs)
         .sort((a, b) => b.startTs - a.startTs);

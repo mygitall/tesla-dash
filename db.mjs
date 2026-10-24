@@ -213,15 +213,18 @@ export function openDb(dir) {
       return db.prepare('SELECT * FROM samples ORDER BY ts DESC LIMIT 1').get() || null;
     },
 
-    /** 从 samples 推导充电会话（charging 表为空时也能用） */
-    chargingSessionsFromSamples() {
+    /**
+     * 从 samples 推导充电会话
+     * 采样稀疏时（例如部署前/重启期间），用「电量百分比差 × 电池容量」补算电量
+     */
+    chargingSessionsFromSamples(packKwh = 75) {
       let rows;
       try {
         rows = db.prepare(`
           SELECT ts, charging_state, charger_power, energy_added, battery
           FROM samples
           WHERE charging_state IN ('Charging','Starting','Complete')
-            AND energy_added IS NOT NULL
+            AND battery IS NOT NULL
           ORDER BY ts
         `).all();
       } catch { return []; }
@@ -234,28 +237,67 @@ export function openDb(dir) {
           if (cur) out.push(cur);
           cur = {
             start: r.ts, end: r.ts,
-            e0: r.energy_added, e1: r.energy_added,
+            e0: r.energy_added ?? 0, e1: r.energy_added ?? 0,
             peak: r.charger_power ?? 0,
             b0: r.battery, b1: r.battery,
+            n: 1,
           };
         } else {
           cur.end = r.ts;
-          cur.e1 = Math.max(cur.e1, r.energy_added);
+          cur.e1 = Math.max(cur.e1, r.energy_added ?? 0);
           cur.peak = Math.max(cur.peak, r.charger_power ?? 0);
           cur.b1 = r.battery;
+          cur.n += 1;
         }
       }
       if (cur) out.push(cur);
 
-      return out.map((s) => ({
-        startTs: s.start,
-        endTs: s.end,
-        energyKwh: Math.max(0, Number((s.e1 - s.e0).toFixed(2))),
-        peakPower: Number((s.peak || 0).toFixed(2)),
-        startBattery: s.b0,
-        endBattery: s.b1,
-        durationMin: Math.round((s.end - s.start) / 60),
-      }));
+      // 采样稀疏时：充电可能延续到后面的样本（例如重启期间没采到）
+      // 若下一个样本电量更高且间隔 < 6 小时、中间没有充电样本，则合并进来
+      for (const s of out) {
+        try {
+          const nx = db.prepare(
+            'SELECT ts, battery FROM samples WHERE ts > ? AND battery IS NOT NULL ORDER BY ts LIMIT 1'
+          ).get(s.end);
+          if (nx && nx.battery > s.b1 && nx.ts - s.end < 6 * 3600 && nx.ts - s.end > 300) {
+            s.b1 = nx.battery;
+            s.end = nx.ts;
+            s.truncated = true;
+          }
+        } catch {}
+      }
+
+      return out.map((s) => {
+        const sampleKwh = Math.max(0, s.e1 - s.e0);
+        const pctGain = Math.max(0, (s.b1 ?? 0) - (s.b0 ?? 0));
+        const kwhFromBattery = (pctGain / 100) * packKwh;
+        // 两者取大：采样不足时电池差更接近真实
+        const energyKwh = Math.max(sampleKwh, kwhFromBattery);
+        const estimated = kwhFromBattery > sampleKwh + 0.3;   // 电池差明显更大 → 采样不足
+
+        // 时长：采样太少时按峰值功率估算
+        let durationMin = Math.round((s.end - s.start) / 60);
+        let durationEstimated = false;
+        if (estimated && s.n < 8) {
+          const kw = s.peak > 1 ? s.peak : 7;
+          durationMin = Math.max(durationMin, Math.round((energyKwh / kw) * 60));
+          durationEstimated = true;
+        }
+
+        return {
+          startTs: s.start,
+          endTs: s.end,
+          energyKwh: Math.round(energyKwh * 100) / 100,
+          peakPower: Math.round((s.peak || 0) * 10) / 10,
+          startBattery: s.b0,
+          endBattery: s.b1,
+          durationMin,
+          samples: s.n,
+          estimated,
+          durationEstimated,
+          truncated: !!s.truncated,
+        };
+      });
     },
 
     /** 今日统计：trips 表 + samples 里程差 双重兜底 */
@@ -289,52 +331,6 @@ export function openDb(dir) {
         batteryMax: s.bmax ?? null,
       };
     },
-
-    /** 从 samples 推导充电会话（charging 表为空时也能用） */
-    chargingSessionsFromSamples() {
-      let rows;
-      try {
-        rows = db.prepare(`
-          SELECT ts, charging_state, charger_power, energy_added, battery
-          FROM samples
-          WHERE charging_state IN ('Charging','Starting','Complete')
-            AND energy_added IS NOT NULL
-          ORDER BY ts
-        `).all();
-      } catch { return []; }
-
-      const GAP = 900;             // 15 分钟无充电样本视为新会话
-      const out = [];
-      let cur = null;
-      for (const r of rows) {
-        if (!cur || r.ts - cur.end > GAP) {
-          if (cur) out.push(cur);
-          cur = {
-            start: r.ts, end: r.ts,
-            e0: r.energy_added, e1: r.energy_added,
-            peak: r.charger_power ?? 0,
-            b0: r.battery, b1: r.battery,
-          };
-        } else {
-          cur.end = r.ts;
-          cur.e1 = Math.max(cur.e1, r.energy_added);
-          cur.peak = Math.max(cur.peak, r.charger_power ?? 0);
-          cur.b1 = r.battery;
-        }
-      }
-      if (cur) out.push(cur);
-
-      return out.map((s) => ({
-        startTs: s.start,
-        endTs: s.end,
-        energyKwh: Math.max(0, Number((s.e1 - s.e0).toFixed(2))),
-        peakPower: Number((s.peak || 0).toFixed(2)),
-        startBattery: s.b0,
-        endBattery: s.b1,
-        durationMin: Math.round((s.end - s.start) / 60),
-      }));
-    },
-
     /** 今日统计：从 trips 表按起始时间聚合 */
     todayStats(sinceTs) {
       const t = db.prepare(`
