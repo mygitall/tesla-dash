@@ -728,6 +728,36 @@ const TESLA_CONTROL = process.env.TESLA_CONTROL_PATH || join(ROOT, 'bin', 'tesla
 const KEY_FILE = process.env.TESLA_KEY_FILE || join(ROOT, 'keys', 'private-key.pem');
 const CMD_TOKEN_FILE = join(DATA_DIR, '.cmd-token');
 
+/** 上次充电增加里程：电池差 × 满电续航（采样太稀时比 range 差更准），带 10 分钟缓存 */
+let _addedKmCache = { ts: 0, val: null };
+function lastChargeAddedKm(rangeKmNow, batteryNow) {
+  const now = Math.floor(Date.now() / 1000);
+  if (now - _addedKmCache.ts < 600) return _addedKmCache.val;
+  let val = null;
+  try {
+    const list = store.chargingSessionsFromSamples(BATTERY_KWH);
+    const last = list[list.length - 1];
+    if (last && last.startBattery != null && last.endBattery != null
+        && last.endBattery > last.startBattery) {
+      // 满电续航：用当前 range/battery 推算，异常时回退 430km
+      let fullKm = 430;
+      if (rangeKmNow && batteryNow && batteryNow > 8) {
+        const guess = rangeKmNow / (batteryNow / 100);
+        if (guess > 300 && guess < 700) fullKm = guess;
+      }
+      const pct = (last.endBattery - last.startBattery) / 100;
+      val = Math.round(pct * fullKm);
+    }
+    // 兜底：电池数据缺失时才用续航差
+    if (val == null && last) {
+      const dmi = store.rangeDeltaBetween(last.startTs - 300, last.endTs + 300);
+      if (dmi != null && dmi > 0 && dmi < 300) val = Math.round(dmi * MI_TO_KM);
+    }
+  } catch {}
+  _addedKmCache = { ts: now, val };
+  return val;
+}
+
 const CMD_SPECS = {
   'lock':                  () => ['lock'],
   'drive':                 () => ['drive'],   // 无钥匙启动：授权驾驶 2 分钟
@@ -1271,17 +1301,8 @@ const server = createServer(async (req, res) => {
           out.today = null;
         }
 
-      // 兜底：API 没给 addedKm 时，用最近一次充电的续航差（真实采样）
-      if (out.addedKm == null) {
-        try {
-          const _list = store.chargingSessionsFromSamples(BATTERY_KWH);
-          const _last = _list[_list.length - 1];
-          if (_last) {
-            const _dmi = store.rangeDeltaBetween(_last.startTs - 300, _last.endTs + 300);
-            if (_dmi != null) out.addedKm = Math.round(_dmi * MI_TO_KM);
-          }
-        } catch {}
-      }
+      // 兜底：API 没给 addedKm 时，用最近一次充电的续航差（带缓存，避免阻塞）
+      if (out.addedKm == null) out.addedKm = lastChargeAddedKm(out.rangeKm, out.battery);
 
       return json(res, 200, out);
     }
