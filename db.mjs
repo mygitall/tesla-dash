@@ -306,6 +306,19 @@ export function openDb(dir) {
       });
     },
 
+    /** 某个时间窗内续航的最大增量（英里），用于算「上次增加多少 km」 */
+    rangeDeltaBetween(startTs, endTs) {
+      try {
+        const r = db.prepare(`
+          SELECT MIN(range_mi) AS lo, MAX(range_mi) AS hi
+          FROM samples
+          WHERE ts BETWEEN ? AND ? AND range_mi IS NOT NULL AND range_mi > 0
+        `).get(startTs, endTs);
+        if (r && r.lo != null && r.hi != null && r.hi > r.lo) return r.hi - r.lo;
+        return null;
+      } catch { return null; }
+    },
+
     /** 某段时间内的充电曲线点（功率 vs 电量） */
     chargeCurveBetween(startTs, endTs) {
       try {

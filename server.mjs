@@ -1193,6 +1193,12 @@ const server = createServer(async (req, res) => {
             speed: ds.speed ?? null,
             shift: ds.shift_state ?? null,
 
+            // 上次充电增加的续航（特斯拉给英里，转 km）
+            addedKm: (() => {
+              const mi = cs.charge_miles_added_rated ?? cs.charge_miles_added_ideal ?? null;
+              return mi != null && mi > 0 ? Math.round(mi * MI_TO_KM) : null;
+            })(),
+
             // 充电细节（对应 UI 的充电卡片）
             chargerPower: cs.charger_power ?? null,
             chargerVoltage: cs.charger_voltage ?? null,
@@ -1264,6 +1270,18 @@ const server = createServer(async (req, res) => {
         } catch (e) {
           out.today = null;
         }
+
+      // 兜底：API 没给 addedKm 时，用最近一次充电的续航差（真实采样）
+      if (out.addedKm == null) {
+        try {
+          const _list = store.chargingSessionsFromSamples(BATTERY_KWH);
+          const _last = _list[_list.length - 1];
+          if (_last) {
+            const _dmi = store.rangeDeltaBetween(_last.startTs - 300, _last.endTs + 300);
+            if (_dmi != null) out.addedKm = Math.round(_dmi * MI_TO_KM);
+          }
+        } catch {}
+      }
 
       return json(res, 200, out);
     }
