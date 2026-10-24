@@ -824,6 +824,12 @@ const server = createServer(async (req, res) => {
     // 公钥必须公开（Tesla 服务端要抓）；其余全部要登录
     // /auth/callback 必须公开：特斯拉回调时浏览器没有会话 cookie，
     // 若要求登录会把 code 丢在重定向里，导致续期失败
+    // /health 供外部监控探测，不含任何敏感信息
+    if (path === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify({ ok: true, ts: Math.floor(Date.now() / 1000) }));
+    }
+
     const isPublic = path.startsWith('/.well-known/') || path === '/auth/callback';
     if (APP_PASSWORD && !isPublic && !isAuthed(req)) {
       if (path.startsWith('/api/')) {
@@ -906,6 +912,11 @@ const server = createServer(async (req, res) => {
         hasCmdScope: tokens?.access_token ? tokenScopes().includes('vehicle_cmds') : false,
         autoLock: SETTINGS.autoLock,
         autoLockDelaySec: SETTINGS.autoLockDelaySec,
+        // 监控用：最近一条采样的时间戳 + 令牌刷新时间
+        lastSampleTs: (() => { try { const r = store.latestSample(); return r?.ts ?? null; } catch { return null; } })(),
+        recorderTickTs: recorder?.lastTickTs ?? null,
+        tokenRefreshTs: tokens?.refreshed_at ? Math.floor(new Date(tokens.refreshed_at).getTime() / 1000) : null,
+        uptimeSec: Math.floor(process.uptime()),
       });
     }
 

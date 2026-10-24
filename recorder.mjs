@@ -424,5 +424,6 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
     state.fastUntil = Math.max(state.fastUntil, Math.floor(Date.now() / 1000) + seconds);
   }
 
-  return { start, stop, status, tick, suppressAutoLock, markActive };
+  return { start, stop, status, tick, suppressAutoLock, markActive,
+           get lastTickTs() { return state.lastPollAt || null; } };
 }
