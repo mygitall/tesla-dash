@@ -107,6 +107,16 @@ async function apiStatus() {
 }
 
 function backupAge() {
+  // 优先看云端备份成功标记（更真实）
+  try {
+    if (existsSync('/var/lib/tesla-last-backup')) {
+      const t = Number(readFileSync('/var/lib/tesla-last-backup', 'utf8').trim());
+      if (t > 0) {
+        const hours = (Date.now() - t) / 3600000;
+        return { ok: hours < 30, detail: `云端备份 ${hours.toFixed(1)} 小时前` };
+      }
+    }
+  } catch {}
   try {
     if (!existsSync(BACKUP_DIR)) return { ok: false, detail: '无备份目录' };
     const files = readdirSync(BACKUP_DIR).filter((f) => f.endsWith('.tar.gz'));
