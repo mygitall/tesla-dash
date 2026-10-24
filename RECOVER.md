@@ -30,6 +30,37 @@ system/
 
 ---
 
+## 一·五、一键恢复（推荐，小白专用）
+
+新服务器上只需跑一个脚本，它会装环境、下载备份、还原全部数据与配置。
+
+```bash
+# 在你的 Mac 上执行（新IP 换成新服务器地址）
+scp ~/TeslaDashBackup/install.sh root@新IP:/root/
+ssh root@新IP 'bash /root/install.sh'
+```
+
+脚本会提示输入 **3 个值**（都在 `~/TeslaDashBackup/credentials.txt` 里）：
+
+```
+七牛 AccessKey
+七牛 SecretKey
+备份加密密码
+```
+
+之后全自动：装 Docker/Caddy/Node → 写配置 → 下载备份 → 解密 → 还原 → 启动。
+
+**最后只剩一件事：把 DNS 的 A 记录改成新 IP。**
+
+> ⚠️ 恢复前先把旧服务器停掉（Vultr 后台 Halt），否则两台机器同时刷新特斯拉令牌会互相踢下线。
+
+脚本位置：
+- 本机备份：`~/TeslaDashBackup/install.sh`
+- 仓库：`scripts/install.sh`
+- 每份七牛备份里也有一份：`system/usr/local/bin/tesla-install.sh`
+
+---
+
 ## 二、恢复数据（同机）
 
 ### 场景 A：数据被误删 / 损坏，服务器还在
