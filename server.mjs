@@ -888,7 +888,16 @@ const server = createServer(async (req, res) => {
         endLat: t.end_lat, endLon: t.end_lon,
         samples: t.samples,
       }));
-      return json(res, 200, { trips, items: trips, limit, offset });
+      // 累计值：数据库全量统计，不受分页影响
+      const tt = store.tripsTotals();
+      const totals = {
+        count: tt.count,
+        distanceKm: Math.round(tt.distanceMi * 1.609344 * 10) / 10,
+        durationMin: Math.round(tt.durationSec / 60),
+        firstTs: tt.firstTs,
+        lastTs: tt.lastTs,
+      };
+      return json(res, 200, { trips, items: trips, totals, limit, offset });
     }
 
     /* 充电列表 */

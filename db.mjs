@@ -306,6 +306,27 @@ export function openDb(dir) {
       });
     },
 
+    /** 全部行程的累计值（不受列表条数限制） */
+    tripsTotals() {
+      try {
+        const r = db.prepare(`
+          SELECT COUNT(*) AS n,
+                 COALESCE(SUM(distance_mi), 0) AS mi,
+                 COALESCE(SUM(end_ts - start_ts), 0) AS sec,
+                 MIN(start_ts) AS firstTs,
+                 MAX(end_ts) AS lastTs
+          FROM trips
+        `).get();
+        return {
+          count: r.n || 0,
+          distanceMi: r.mi || 0,
+          durationSec: r.sec || 0,
+          firstTs: r.firstTs || null,
+          lastTs: r.lastTs || null,
+        };
+      } catch { return { count: 0, distanceMi: 0, durationSec: 0, firstTs: null, lastTs: null }; }
+    },
+
     /** 今日统计：trips 表 + samples 里程差 双重兜底 */
     todayStats(sinceTs) {
       const t = db.prepare(`
