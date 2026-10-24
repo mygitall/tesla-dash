@@ -977,6 +977,39 @@ const server = createServer(async (req, res) => {
     }
 
     /* ---------- App 专用：一次拿全的精简状态 ---------- */
+    /* ---------- 充电曲线 ---------- */
+    if (path === '/api/charge/curve') {
+      let startTs = Number(url.searchParams.get('start'));
+      let endTs = Number(url.searchParams.get('end'));
+
+      // 不传时间就取最近一次充电
+      if (!startTs || !endTs) {
+        const list = store.chargingSessionsFromSamples(BATTERY_KWH);
+        if (!list.length) return json(res, 200, { startTs: null, endTs: null, points: [] });
+        const last = list[list.length - 1];
+        startTs = last.startTs - 300;
+        endTs = last.endTs + 300;
+      }
+
+      const raw = store.chargeCurveBetween(startTs, endTs);
+      // 只保留真正在充电的样本（功率 > 0.5kW）
+      const points = raw
+        .filter((p) => (p.power ?? 0) > 0.5)
+        .map((p) => ({
+          ts: p.ts,
+          battery: p.battery,
+          power: Math.round((p.power ?? 0) * 10) / 10,
+          voltage: p.voltage,
+          current: p.current,
+        }));
+      const peak = points.reduce((m, p) => Math.max(m, p.power), 0);
+      return json(res, 200, {
+        startTs, endTs, points,
+        peakPower: Math.round(peak * 10) / 10,
+        count: points.length,
+      });
+    }
+
     /* ---------- 充电历史基线（手工导入官方 App 数字） ---------- */
     if (path === '/api/charge/baseline') {
       if (req.method === 'GET') {

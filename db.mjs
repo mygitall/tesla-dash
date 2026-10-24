@@ -306,6 +306,26 @@ export function openDb(dir) {
       });
     },
 
+    /** 某段时间内的充电曲线点（功率 vs 电量） */
+    chargeCurveBetween(startTs, endTs) {
+      try {
+        return db.prepare(`
+          SELECT ts, battery, charger_power, charger_voltage, charger_current, charging_state
+          FROM samples
+          WHERE ts BETWEEN ? AND ?
+            AND charger_power IS NOT NULL
+          ORDER BY ts
+        `).all(startTs, endTs).map((r) => ({
+          ts: r.ts,
+          battery: r.battery,
+          power: r.charger_power,
+          voltage: r.charger_voltage,
+          current: r.charger_current,
+          state: r.charging_state,
+        }));
+      } catch { return []; }
+    },
+
     /** 全部行程的累计值（不受列表条数限制） */
     tripsTotals() {
       try {
