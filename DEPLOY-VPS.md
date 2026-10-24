@@ -230,7 +230,7 @@ nano .env
 ```ini
 MODE=fleet
 TESLA_REGION=cn
-TESLA_CLIENT_ID=e4bbe918-f5dd-4199-b07a-e99fd8f661e7
+TESLA_CLIENT_ID=<特斯拉CLIENT_ID>
 TESLA_CLIENT_SECRET=你的密钥
 
 # ↓ 改成你的域名（第 7 步配好域名再填也行，但必须和特斯拉后台一致）
@@ -351,7 +351,7 @@ curl -sI https://dash.你的域名.com | head -3
 
 ## 8. 特斯拉后台：只加「允许的重定向 URI」
 
-打开：https://developer.tesla.cn/dashboard/app-details/e4bbe918-f5dd-4199-b07a-e99fd8f661e7
+打开：https://developer.tesla.cn/dashboard/app-details/<特斯拉CLIENT_ID>
 
 **「允许的重定向 URI」** → 新增：
 

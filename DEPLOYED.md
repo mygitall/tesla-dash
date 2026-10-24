@@ -260,7 +260,7 @@ curl -b cookie.txt https://www.zhangweiwei.cc/api/recorder | jq .autoLock
 |---|---|
 | 区域 | 中国 (cn) |
 | API | `https://fleet-api.prd.cn.vn.cloud.tesla.cn` |
-| Client ID | `e4bbe918-f5dd-4199-b07a-e99fd8f661e7` |
+| Client ID | `<特斯拉CLIENT_ID>` |
 | 伙伴账号 ID | `8e011601-c0f2-472b-b569-b86ec9aad10c` |
 | **登记域名** | `www.zhangweiwei.cc`（2026-10-23 从 netlify 迁移过来） |
 | 公钥 | 托管在 `https://www.zhangweiwei.cc/.well-known/appspecific/com.tesla.3p.public-key.pem` |
