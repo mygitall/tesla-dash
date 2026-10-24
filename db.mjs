@@ -258,6 +258,83 @@ export function openDb(dir) {
       }));
     },
 
+    /** 今日统计：trips 表 + samples 里程差 双重兜底 */
+    todayStats(sinceTs) {
+      const t = db.prepare(`
+        SELECT COUNT(*) AS trips,
+               COALESCE(SUM(distance_mi), 0) AS distance_mi,
+               COALESCE(SUM(end_ts - start_ts), 0) AS duration_sec
+        FROM trips WHERE start_ts >= ?
+      `).get(sinceTs) || {};
+
+      // 采样兜底：odometer 是英里，用最大-最小得到当天里程
+      let s = {};
+      try {
+        s = db.prepare(`
+          SELECT MIN(odometer) AS a, MAX(odometer) AS b,
+                 SUM(CASE WHEN moving = 1 THEN 1 ELSE 0 END) AS mov,
+                 MIN(battery) AS bmin, MAX(battery) AS bmax
+          FROM samples WHERE ts >= ? AND odometer IS NOT NULL
+        `).get(sinceTs) || {};
+      } catch {}
+
+      const odoMi = (s.a != null && s.b != null) ? Math.max(0, s.b - s.a) : 0;
+      const sampleSec = (s.mov || 0) * 60;   // 每个移动样本约 60 秒
+
+      return {
+        trips: t.trips || 0,
+        distanceMi: Math.max(t.distance_mi || 0, odoMi),
+        durationSec: Math.max(t.duration_sec || 0, sampleSec),
+        batteryMin: s.bmin ?? null,
+        batteryMax: s.bmax ?? null,
+      };
+    },
+
+    /** 从 samples 推导充电会话（charging 表为空时也能用） */
+    chargingSessionsFromSamples() {
+      let rows;
+      try {
+        rows = db.prepare(`
+          SELECT ts, charging_state, charger_power, energy_added, battery
+          FROM samples
+          WHERE charging_state IN ('Charging','Starting','Complete')
+            AND energy_added IS NOT NULL
+          ORDER BY ts
+        `).all();
+      } catch { return []; }
+
+      const GAP = 900;             // 15 分钟无充电样本视为新会话
+      const out = [];
+      let cur = null;
+      for (const r of rows) {
+        if (!cur || r.ts - cur.end > GAP) {
+          if (cur) out.push(cur);
+          cur = {
+            start: r.ts, end: r.ts,
+            e0: r.energy_added, e1: r.energy_added,
+            peak: r.charger_power ?? 0,
+            b0: r.battery, b1: r.battery,
+          };
+        } else {
+          cur.end = r.ts;
+          cur.e1 = Math.max(cur.e1, r.energy_added);
+          cur.peak = Math.max(cur.peak, r.charger_power ?? 0);
+          cur.b1 = r.battery;
+        }
+      }
+      if (cur) out.push(cur);
+
+      return out.map((s) => ({
+        startTs: s.start,
+        endTs: s.end,
+        energyKwh: Math.max(0, Number((s.e1 - s.e0).toFixed(2))),
+        peakPower: Number((s.peak || 0).toFixed(2)),
+        startBattery: s.b0,
+        endBattery: s.b1,
+        durationMin: Math.round((s.end - s.start) / 60),
+      }));
+    },
+
     /** 今日统计：从 trips 表按起始时间聚合 */
     todayStats(sinceTs) {
       const t = db.prepare(`

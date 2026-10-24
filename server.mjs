@@ -1111,24 +1111,6 @@ const server = createServer(async (req, res) => {
               : null,
             batteryCapacityKwh: BATTERY_KWH,
           });
-
-          // 今日统计（按东八区当天 0 点）
-          try {
-            const now = new Date();
-            const localMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
-            const st = store.todayStats(Math.floor(localMidnight));
-            const distKm = st.distanceMi * MI_TO_KM;
-            const kwh = distKm * 0.15;          // 粗略能耗估算
-            out.today = {
-              distanceKm: Math.round(distKm * 10) / 10,
-              driveMinutes: Math.round(st.durationSec / 60),
-              energyKwh: Math.round(kwh * 10) / 10,
-              cost: Math.round(kwh * ELECTRICITY_PRICE * 100) / 100,
-              trips: st.trips,
-            };
-          } catch (e) {
-            out.today = null;
-          }
         } catch (e) {
           out.dataError = e?.message || String(e);
         }
@@ -1160,6 +1142,30 @@ const server = createServer(async (req, res) => {
               }
             } catch (e) {}
           }
+
+
+        // 今日统计（按东八区当天 0 点）
+        try {
+          const now = new Date();
+          const localMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
+          const st = store.todayStats(Math.floor(localMidnight));
+          const distKm = st.distanceMi * MI_TO_KM;
+          // 今日耗电：里程估算 与 电池差推算 取较大者（避免偏低）
+          let kwh = distKm * 0.15;
+          if (st.batteryMax != null && st.batteryMin != null && st.batteryMax > st.batteryMin) {
+            const byBattery = ((st.batteryMax - st.batteryMin) / 100) * BATTERY_KWH;
+            kwh = Math.max(kwh, byBattery);
+          }
+          out.today = {
+            distanceKm: Math.round(distKm * 10) / 10,
+            driveMinutes: Math.round(st.durationSec / 60),
+            energyKwh: Math.round(kwh * 10) / 10,
+            cost: Math.round(kwh * ELECTRICITY_PRICE * 100) / 100,
+            trips: st.trips,
+          };
+        } catch (e) {
+          out.today = null;
+        }
 
       return json(res, 200, out);
     }
