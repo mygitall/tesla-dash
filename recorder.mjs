@@ -196,6 +196,8 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
       shift_state: ds.shift_state,
       moving: moving ? 1 : 0,
       lat: ds.latitude,
+      native_lat: ds.native_latitude ?? null,
+      native_lon: ds.native_longitude ?? null,
       lon: ds.longitude,
       heading: ds.heading,
       battery: cs.battery_level,
@@ -275,6 +277,8 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
           chargeLimit: cs.charge_limit_soc,
           samples: 0,
           lat: ds.latitude,
+          native_lat: ds.native_latitude ?? null,
+          native_lon: ds.native_longitude ?? null,
           lon: ds.longitude,
           end_battery: batt,
           end_energy: cs.charge_energy_added ?? 0,
@@ -379,13 +383,23 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
     log(`[采集] 启动 · 间隔 ${intervalSec}s · 保留 ${retentionDays > 0 ? retentionDays + ' 天' : '永久'}`);
     state.fastUntil = Math.floor(Date.now() / 1000) + 600;
     tick();
-    timer = setInterval(tick, intervalSec * 1000);
+    // 动态间隔：行驶/充电时 20 秒一个点（轨迹更细），静置时 60 秒
+    const fastIntervalSec = Number(process.env.FAST_INTERVAL_SEC) || 20;
+    const loop = async () => {
+      if (!state.running) return;
+      try { await tick(); } catch (e) { log(`[采集] tick 异常: ${e.message}`); }
+      const nowTs = Math.floor(Date.now() / 1000);
+      const delay = state.fastUntil > nowTs ? fastIntervalSec : intervalSec;
+      timer = setTimeout(loop, delay * 1000);
+      if (timer.unref) timer.unref();
+    };
+    timer = setTimeout(loop, 1000);
     if (timer.unref) timer.unref();
   }
 
   function stop() {
     state.running = false;
-    if (timer) clearInterval(timer);
+    if (timer) clearTimeout(timer);
     timer = null;
     log('[采集] 已停止');
   }

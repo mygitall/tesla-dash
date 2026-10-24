@@ -101,6 +101,9 @@ export function openDb(dir) {
 
   // 兼容旧库：补上后加的列
   try { db.exec('ALTER TABLE samples ADD COLUMN charge_rate REAL'); } catch {}
+  // 车给的「本地坐标系」坐标（中国为 GCJ-02），用于地图精确显示
+  try { db.exec('ALTER TABLE samples ADD COLUMN native_lat REAL'); } catch {}
+  try { db.exec('ALTER TABLE samples ADD COLUMN native_lon REAL'); } catch {}
 
   const stmts = {
     insertSample: db.prepare(`
@@ -110,14 +113,15 @@ export function openDb(dir) {
         charging_state,charger_power,charger_voltage,charger_current,charge_rate,
         energy_added,charge_limit,time_to_full,
         inside_temp,outside_temp,climate_on,
-        odometer,locked,sentry,tpms_fl,tpms_fr,tpms_rl,tpms_rr,car_version
+        odometer,locked,sentry,tpms_fl,tpms_fr,tpms_rl,tpms_rr,car_version,
+        native_lat,native_lon
       ) VALUES (
         ?,?,?,?,?,?,?,?,?,
         ?,?,?,?,?,
         ?,?,?,?,?,
         ?,?,?,
         ?,?,?,
-        ?,?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?
       )`),
     insertTrip: db.prepare(`
       INSERT OR IGNORE INTO trips (
@@ -159,7 +163,8 @@ export function openDb(dir) {
     getCharging: db.prepare(`SELECT * FROM charging WHERE id = ?`),
     // 行程轨迹：只要移动中的点，按时间排序
     trackBetween: db.prepare(`
-      SELECT ts, lat, lon, speed, power, battery, odometer
+      SELECT ts, lat, lon, speed, power, battery, odometer,
+             native_lat, native_lon
       FROM samples
       WHERE ts BETWEEN ? AND ? AND lat IS NOT NULL AND lon IS NOT NULL
       ORDER BY ts ASC`),
@@ -185,7 +190,8 @@ export function openDb(dir) {
         s.inside_temp ?? null, s.outside_temp ?? null, s.climate_on ?? null,
         s.odometer ?? null, s.locked ?? null, s.sentry ?? null,
         s.tpms_fl ?? null, s.tpms_fr ?? null, s.tpms_rl ?? null, s.tpms_rr ?? null,
-        s.car_version ?? null
+        s.car_version ?? null,
+        s.native_lat ?? null, s.native_lon ?? null
       );
     },
 

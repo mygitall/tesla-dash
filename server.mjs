@@ -905,7 +905,19 @@ const server = createServer(async (req, res) => {
       const trip = store.getTrip(id);
       if (!trip) return json(res, 404, { error: 'NOT_FOUND' });
       // 轨迹前后各放宽 2 分钟，避免起点/终点被采样间隙裁掉
-      const track = store.trackBetween(trip.start_ts - 120, trip.end_ts + 120);
+      const raw = store.trackBetween(trip.start_ts - 120, trip.end_ts + 120);
+      // 优先用车辆给的本地坐标（GCJ-02），没有则回退 WGS-84 并标记
+      const track = raw.map((p) => {
+        const hasNative = p.native_lat != null && p.native_lon != null;
+        return {
+          ts: p.ts,
+          lat: hasNative ? p.native_lat : p.lat,
+          lon: hasNative ? p.native_lon : p.lon,
+          frame: hasNative ? 'gcj' : 'wgs',
+          speed: p.speed,
+          battery: p.battery,
+        };
+      });
       return json(res, 200, { trip, track });
     }
 
