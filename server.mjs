@@ -1013,6 +1013,8 @@ const server = createServer(async (req, res) => {
       const present = url.searchParams.get('present') !== '0';
       try {
         const until = recorder.presence(secs, present);
+        const rssi = url.searchParams.get('rssi');
+        console.log(`[在场] ${present ? '在场' : '已离开'} · 抑制${present ? ` ${secs}s` : '已清除'}${rssi ? ` · rssi=${rssi}` : ''}`);
         return json(res, 200, { ok: true, present, suppressedUntil: until, seconds: secs });
       } catch (e) {
         return json(res, 500, { error: e.message });
