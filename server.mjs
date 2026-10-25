@@ -1009,10 +1009,11 @@ const server = createServer(async (req, res) => {
     /* ---------- App 专用：一次拿全的精简状态 ---------- */
     /* ---------- App 蓝牙在场（抑制自动锁 + 高频采集）---------- */
     if (path === '/api/recorder/presence') {
-      const secs = Math.min(Math.max(Number(url.searchParams.get('sec') || 600), 60), 1800);
+      const secs = Math.min(Math.max(Number(url.searchParams.get('sec') || 180), 60), 1800);
+      const present = url.searchParams.get('present') !== '0';
       try {
-        const until = recorder.presence(secs);
-        return json(res, 200, { ok: true, suppressedUntil: until, seconds: secs });
+        const until = recorder.presence(secs, present);
+        return json(res, 200, { ok: true, present, suppressedUntil: until, seconds: secs });
       } catch (e) {
         return json(res, 500, { error: e.message });
       }

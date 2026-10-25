@@ -417,10 +417,18 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
   }
 
   /// App 蓝牙在场信号：抑制自动锁 + 保持高频采集
-  function presence(seconds = 600) {
-    lockState.suppressUntil = Math.floor(Date.now() / 1000) + seconds;
+  function presence(seconds = 180, present = true) {
+    const now = Math.floor(Date.now() / 1000);
+    if (!present) {
+      // 手机已远离：立刻解除抑制，让自动锁尽快生效
+      lockState.suppressUntil = 0;
+      lockState.armedAt = null;
+      log('[在场] 手机已远离 → 解除自动锁抑制');
+      return 0;
+    }
+    lockState.suppressUntil = now + seconds;
     lockState.armedAt = null;
-    state.fastUntil = Math.max(state.fastUntil, Math.floor(Date.now() / 1000) + Math.min(seconds, 900));
+    state.fastUntil = Math.max(state.fastUntil, now + Math.min(seconds, 900));
     return lockState.suppressUntil;
   }
 
