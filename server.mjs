@@ -1281,7 +1281,14 @@ const server = createServer(async (req, res) => {
         // 今日统计（按东八区当天 0 点）
         try {
           const now = new Date();
-          const localMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
+          // 今日起点按中国时区（服务器是 UTC，直接 new Date(y,m,d) 会差 8 小时）
+          const cnParts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+          }).formatToParts(now);
+          const cnY = Number(cnParts.find((p) => p.type === 'year').value);
+          const cnM = Number(cnParts.find((p) => p.type === 'month').value);
+          const cnD = Number(cnParts.find((p) => p.type === 'day').value);
+          const localMidnight = Math.floor(Date.UTC(cnY, cnM - 1, cnD) / 1000) - 8 * 3600;
           const st = store.todayStats(Math.floor(localMidnight));
           const distKm = st.distanceMi * MI_TO_KM;
           // 今日耗电：里程估算 与 电池差推算 取较大者（避免偏低）
@@ -1290,12 +1297,25 @@ const server = createServer(async (req, res) => {
             const byBattery = ((st.batteryMax - st.batteryMin) / 100) * BATTERY_KWH;
             kwh = Math.max(kwh, byBattery);
           }
+          // 叠加「进行中的行程」，让首页数字实时增长（不用等停车 2 分钟）
+          let openMi = 0, openSec = 0, openCount = 0;
+          try {
+            const ot = recorder.status().openTrip;
+            if (ot) {
+              openMi = ot.distanceMi || 0;
+              openSec = ot.durationSec || 0;
+              openCount = 1;
+            }
+          } catch {}
+          const totalKm = distKm + openMi * MI_TO_KM;
+          const totalSec = st.durationSec + openSec;
+
           out.today = {
-            distanceKm: Math.round(distKm * 10) / 10,
-            driveMinutes: Math.round(st.durationSec / 60),
+            distanceKm: Math.round(totalKm * 10) / 10,
+            driveMinutes: Math.round(totalSec / 60),
             energyKwh: Math.round(kwh * 10) / 10,
             cost: Math.round(kwh * ELECTRICITY_PRICE * 100) / 100,
-            trips: st.trips,
+            trips: (st.trips || 0) + openCount,
           };
         } catch (e) {
           out.today = null;

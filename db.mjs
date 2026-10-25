@@ -306,6 +306,16 @@ export function openDb(dir) {
       });
     },
 
+    /** 某时间段内里程表最小/最大值（英里），用于精确算行程距离 */
+    rawOdoRange(startTs, endTs) {
+      try {
+        return db.prepare(`
+          SELECT MIN(odometer) AS lo, MAX(odometer) AS hi
+          FROM samples WHERE ts BETWEEN ? AND ? AND odometer IS NOT NULL
+        `).get(startTs, endTs) || null;
+      } catch { return null; }
+    },
+
     /** 某个时间窗内续航的最大增量（英里），用于算「上次增加多少 km」 */
     rangeDeltaBetween(startTs, endTs) {
       try {
@@ -374,14 +384,32 @@ export function openDb(dir) {
       try {
         s = db.prepare(`
           SELECT MIN(odometer) AS a, MAX(odometer) AS b,
-                 SUM(CASE WHEN moving = 1 THEN 1 ELSE 0 END) AS mov,
                  MIN(battery) AS bmin, MAX(battery) AS bmax
           FROM samples WHERE ts >= ? AND odometer IS NOT NULL
         `).get(sinceTs) || {};
       } catch {}
 
       const odoMi = (s.a != null && s.b != null) ? Math.max(0, s.b - s.a) : 0;
-      const sampleSec = (s.mov || 0) * 60;   // 每个移动样本约 60 秒
+
+      // 行驶时长：按相邻样本的时间差累加（适配 20 秒/60 秒不同采样间隔）
+      let sampleSec = 0;
+      try {
+        const r = db.prepare(`
+          SELECT COALESCE(SUM(gap), 0) AS sec FROM (
+            SELECT MIN(ts - prev, 180) AS gap
+            FROM (SELECT ts, moving, LAG(ts) OVER (ORDER BY ts) AS prev
+                  FROM samples WHERE ts >= ?) 
+            WHERE moving = 1 AND prev IS NOT NULL
+          )
+        `).get(sinceTs) || {};
+        sampleSec = Math.round(r.sec || 0);
+      } catch {
+        // 兜底：老式估算（至少有用）
+        try {
+          const r2 = db.prepare(`SELECT SUM(CASE WHEN moving=1 THEN 1 ELSE 0 END) AS mov FROM samples WHERE ts >= ?`).get(sinceTs);
+          sampleSec = (r2.mov || 0) * 60;
+        } catch {}
+      }
 
       return {
         trips: t.trips || 0,
@@ -389,20 +417,6 @@ export function openDb(dir) {
         durationSec: Math.max(t.duration_sec || 0, sampleSec),
         batteryMin: s.bmin ?? null,
         batteryMax: s.bmax ?? null,
-      };
-    },
-    /** 今日统计：从 trips 表按起始时间聚合 */
-    todayStats(sinceTs) {
-      const t = db.prepare(`
-        SELECT COUNT(*) AS trips,
-               COALESCE(SUM(distance_mi), 0) AS distance_mi,
-               COALESCE(SUM(end_ts - start_ts), 0) AS duration_sec
-        FROM trips WHERE start_ts >= ?
-      `).get(sinceTs) || {};
-      return {
-        trips: t.trips || 0,
-        distanceMi: t.distance_mi || 0,
-        durationSec: t.duration_sec || 0,
       };
     },
 

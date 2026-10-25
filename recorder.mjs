@@ -8,7 +8,7 @@
  * - 采样间隔默认 60 秒，可用 POLL_INTERVAL_SEC 调整
  */
 
-const TRIP_END_GAP_SEC = 300;    // 停车 5 分钟算行程结束
+const TRIP_END_GAP_SEC = 120;    // 停车 2 分钟算行程结束（更快更新今日统计）
 const CHARGE_END_GAP_SEC = 300;  // 停止充电 5 分钟算本次充电结束
 const STALE_SEC = 7200;          // 超过 2 小时没更新的开放段，强制收尾
 
@@ -130,12 +130,24 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
     if (!t) return;
     const durationSec = Math.max(1, (ts - t.start_ts));
     const avgMph = t.movingSamples > 0 ? t.speedSum / t.movingSamples : null;
+
+    // 距离以「采样里程表差值」为准：起止样本可能漏采，实测会少算 20~30%
+    let distMi = (t.start_odo != null && t.end_odo != null)
+      ? Math.max(0, t.end_odo - t.start_odo) : null;
+    try {
+      const r = typeof db.rawOdoRange === 'function' ? db.rawOdoRange(t.start_ts, ts) : null;
+      if (r && r.lo != null && r.hi != null) {
+        const odoDelta = Math.max(0, r.hi - r.lo);
+        if (distMi == null || odoDelta > distMi) distMi = odoDelta;
+      }
+    } catch {}
+
     db.insertTrip({
       start_ts: t.start_ts,
       end_ts: ts,
       start_odo: t.start_odo,
       end_odo: t.end_odo,
-      distance_mi: t.start_odo != null && t.end_odo != null ? Math.max(0, t.end_odo - t.start_odo) : null,
+      distance_mi: distMi,
       start_battery: t.start_battery,
       end_battery: t.end_battery,
       start_lat: t.start_lat,
@@ -146,8 +158,8 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
       avg_speed: avgMph,
       samples: t.samples,
     });
-    const distMi = (t.start_odo != null && t.end_odo != null) ? (t.end_odo - t.start_odo) : 0;
-    log(`[行程] 结束 · ${(distMi * 1.609344).toFixed(1)} km · ${Math.round(durationSec / 60)} 分钟 · 电量 ${t.start_battery}%→${t.end_battery}%`);
+    const distFinal = distMi ?? 0;
+    log(`[行程] 结束 · ${(distFinal * 1.609344).toFixed(1)} km · ${Math.round(durationSec / 60)} 分钟 · 电量 ${t.start_battery}%→${t.end_battery}%`);
     state.trip = null;
   }
 
@@ -419,6 +431,12 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
       sleeps: state.sleeps,
       errors: state.errors,
       tripOpen: !!state.trip,
+      openTrip: state.trip ? {
+        startTs: state.trip.start_ts,
+        distanceMi: (state.trip.start_odo != null && state.trip.end_odo != null)
+          ? Math.max(0, state.trip.end_odo - state.trip.start_odo) : 0,
+        durationSec: Math.max(0, Math.floor(Date.now() / 1000) - state.trip.start_ts),
+      } : null,
       chargingOpen: !!state.charging,
       autoLock: {
         enabled: lockEnabled(),
