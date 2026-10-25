@@ -416,6 +416,14 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
     log('[采集] 已停止');
   }
 
+  /// App 蓝牙在场信号：抑制自动锁 + 保持高频采集
+  function presence(seconds = 600) {
+    lockState.suppressUntil = Math.floor(Date.now() / 1000) + seconds;
+    lockState.armedAt = null;
+    state.fastUntil = Math.max(state.fastUntil, Math.floor(Date.now() / 1000) + Math.min(seconds, 900));
+    return lockState.suppressUntil;
+  }
+
   /// 由外部（App 的蓝牙连上）调用：进入高频采集窗口，避免漏记短途行驶
   function wake(seconds = 900) {
     const until = Math.floor(Date.now() / 1000) + seconds;
@@ -465,6 +473,6 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
     state.fastUntil = Math.max(state.fastUntil, Math.floor(Date.now() / 1000) + seconds);
   }
 
-  return { start, stop, status, tick, suppressAutoLock, markActive, wake,
+  return { start, stop, status, tick, suppressAutoLock, markActive, wake, presence,
            get lastTickTs() { return state.lastPollAt || null; } };
 }

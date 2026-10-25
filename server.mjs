@@ -1007,6 +1007,17 @@ const server = createServer(async (req, res) => {
     }
 
     /* ---------- App 专用：一次拿全的精简状态 ---------- */
+    /* ---------- App 蓝牙在场（抑制自动锁 + 高频采集）---------- */
+    if (path === '/api/recorder/presence') {
+      const secs = Math.min(Math.max(Number(url.searchParams.get('sec') || 600), 60), 1800);
+      try {
+        const until = recorder.presence(secs);
+        return json(res, 200, { ok: true, suppressedUntil: until, seconds: secs });
+      } catch (e) {
+        return json(res, 500, { error: e.message });
+      }
+    }
+
     /* ---------- App 触发高频采集 ---------- */
     if (path === '/api/recorder/wake') {
       const secs = Math.min(Math.max(Number(url.searchParams.get('sec') || 900), 60), 3600);
