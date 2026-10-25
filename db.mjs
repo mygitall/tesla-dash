@@ -306,6 +306,29 @@ export function openDb(dir) {
       });
     },
 
+    /** 一次性校正：用里程表差值重算历史行程距离（新的计算口径） */
+    recomputeTripDistances() {
+      const changed = [];
+      try {
+        const rows = db.prepare('SELECT id, start_ts, end_ts, distance_mi FROM trips').all();
+        const upd = db.prepare('UPDATE trips SET distance_mi = ? WHERE id = ?');
+        for (const t of rows) {
+          const r = db.prepare(`
+            SELECT MIN(odometer) AS lo, MAX(odometer) AS hi
+            FROM samples WHERE ts BETWEEN ? AND ? AND odometer IS NOT NULL
+          `).get(t.start_ts, t.end_ts);
+          if (!r || r.lo == null || r.hi == null) continue;
+          const delta = Math.max(0, r.hi - r.lo);
+          const old = t.distance_mi ?? 0;
+          if (delta > old + 0.05) {
+            upd.run(delta, t.id);
+            changed.push({ id: t.id, from: old, to: delta });
+          }
+        }
+      } catch (e) {}
+      return changed;
+    },
+
     /** 某时间段内里程表最小/最大值（英里），用于精确算行程距离 */
     rawOdoRange(startTs, endTs) {
       try {

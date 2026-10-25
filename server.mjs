@@ -1007,6 +1007,17 @@ const server = createServer(async (req, res) => {
     }
 
     /* ---------- App 专用：一次拿全的精简状态 ---------- */
+    /* ---------- App 触发高频采集 ---------- */
+    if (path === '/api/recorder/wake') {
+      const secs = Math.min(Math.max(Number(url.searchParams.get('sec') || 900), 60), 3600);
+      try {
+        const until = recorder.wake(secs);
+        return json(res, 200, { ok: true, fastUntil: until, seconds: secs });
+      } catch (e) {
+        return json(res, 500, { error: e.message });
+      }
+    }
+
     /* ---------- 充电曲线 ---------- */
     if (path === '/api/charge/curve') {
       let startTs = Number(url.searchParams.get('start'));
@@ -1598,6 +1609,17 @@ function renderMsg(title, bodyHtml) {
 }
 
 const HOST = process.env.HOST || '127.0.0.1';
+
+// 启动时校正历史行程距离（用里程表差值，和首页口径一致）
+try {
+  const fixed = store.recomputeTripDistances();
+  if (fixed.length) {
+    console.log(`[行程] 已校正 ${fixed.length} 段距离：`);
+    for (const f of fixed) {
+      console.log(`  #${f.id}  ${(f.from * 1.609344).toFixed(1)} → ${(f.to * 1.609344).toFixed(1)} km`);
+    }
+  }
+} catch (e) { console.log('[行程] 校正失败:', e.message); }
 
 server.listen(PORT, HOST, () => {
   console.log('');
