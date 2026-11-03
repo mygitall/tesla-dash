@@ -436,6 +436,8 @@ export function openDb(dir) {
 
       return {
         trips: t.trips || 0,
+        tripsMi: t.distance_mi || 0,      // 行程记录里程
+        odoMi,                             // 里程表增量（含未记录短途）
         distanceMi: Math.max(t.distance_mi || 0, odoMi),
         durationSec: Math.max(t.duration_sec || 0, sampleSec),
         batteryMin: s.bmin ?? null,

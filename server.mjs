@@ -481,6 +481,8 @@ const SETTINGS_FILE = join(DATA_DIR, 'settings.json');
 const DEFAULT_SETTINGS = {
   autoLock: false,
   autoLockDelaySec: 60,
+  // 电价（元/度），用于计算充电花费；不同地区/时段电价不同，用户可改
+  electricityPrice: 1.6,
   // 官方 App 显示的历史累计（导入前的手工基线）
   chargeBaseline: { sessions: 0, kwh: 0, durationMin: 0, assumedKw: 60, updatedAt: null },
 };
@@ -1336,11 +1338,14 @@ const server = createServer(async (req, res) => {
           const localMidnight = Math.floor(Date.UTC(cnY, cnM - 1, cnD) / 1000) - 8 * 3600;
           const st = store.todayStats(Math.floor(localMidnight));
           const distKm = st.distanceMi * MI_TO_KM;
-          // 今日耗电：里程估算 与 电池差推算 取较大者（避免偏低）
-          let kwh = distKm * 0.15;
+          // 今日耗电：优先用「电池百分比差 × 电池容量」（比里程估算准），
+          // 没有电池数据时才退回里程估算，并统一标记为估算值
+          let kwh = 0;
+          let energyEstimated = true;
           if (st.batteryMax != null && st.batteryMin != null && st.batteryMax > st.batteryMin) {
-            const byBattery = ((st.batteryMax - st.batteryMin) / 100) * BATTERY_KWH;
-            kwh = Math.max(kwh, byBattery);
+            kwh = ((st.batteryMax - st.batteryMin) / 100) * BATTERY_KWH;
+          } else {
+            kwh = distKm * 0.15;
           }
           // 叠加「进行中的行程」，让首页数字实时增长（不用等停车 2 分钟）
           let openMi = 0, openSec = 0, openCount = 0;
@@ -1355,12 +1360,16 @@ const server = createServer(async (req, res) => {
           const totalKm = distKm + openMi * MI_TO_KM;
           const totalSec = st.durationSec + openSec;
 
+          out.electricityPrice = SETTINGS.electricityPrice ?? ELECTRICITY_PRICE;
           out.today = {
             distanceKm: Math.round(totalKm * 10) / 10,
             driveMinutes: Math.round(totalSec / 60),
             energyKwh: Math.round(kwh * 10) / 10,
-            cost: Math.round(kwh * ELECTRICITY_PRICE * 100) / 100,
+            energyEstimated,
+            cost: Math.round(kwh * (SETTINGS.electricityPrice ?? ELECTRICITY_PRICE) * 100) / 100,
             trips: (st.trips || 0) + openCount,
+            // 里程表比行程记录多出来的部分（有短途没被记成行程）
+            gapKm: Math.round(Math.max(0, (st.odoMi || 0) - (st.tripsMi || 0)) * MI_TO_KM * 10) / 10,
           };
         } catch (e) {
           out.today = null;
