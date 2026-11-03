@@ -554,6 +554,18 @@ async function sendAutoLock() {
   return { ok, message: ok ? null : (detail || '指令失败'), detail };
 }
 
+// 控制动作的中文名（操作历史展示用）
+const ACTION_LABELS = {
+  lock: '上锁', unlock: '解锁',
+  'climate-on': '开空调', 'climate-off': '关空调',
+  drive: '无钥匙启动',
+  'charge-port-open': '开充电口', 'charge-port-close': '关充电口',
+  'charge-start': '开始充电', 'charge-stop': '停止充电',
+  honk: '鸣笛', flash: '闪灯',
+  'sentry-on': '开哨兵', 'sentry-off': '关哨兵',
+  wake: '唤醒', 'trunk-open': '开后尾门', 'frunk-open': '开前备箱',
+};
+
 const recorder = createRecorder({
   db: store,
   autoLock: {
@@ -1039,6 +1051,14 @@ const server = createServer(async (req, res) => {
       }
     }
 
+    /* ---------- 操作历史 ---------- */
+    if (path === '/api/actions') {
+      const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 50));
+      const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
+      const list = store.listActions(limit, offset);
+      return json(res, 200, { ok: true, actions: list, hasMore: list.length >= limit });
+    }
+
     /* ---------- 电池健康度 ---------- */
     if (path === '/api/charge/health') {
       const nominal = Number(SETTINGS.nominalRangeKm || 435);   // 同款新车满电表显续航
@@ -1514,6 +1534,17 @@ const server = createServer(async (req, res) => {
       const detail = (r.stderr || r.stdout || '').trim();
       const needPairing = /not been paired|public key/i.test(detail);
       console.log(`[指令] ${action} ${args.join(' ')} → ${ok ? '✓ 成功' : '✗ 失败'}${detail ? ' · ' + detail.slice(0, 160) : ''}`);
+      // 记录操作历史（谁在何时做了什么，成功与否）
+      try {
+        store.insertAction({
+          ts: Math.floor(Date.now() / 1000),
+          action,
+          label: ACTION_LABELS[action] || action,
+          ok,
+          detail: ok ? '' : (needPairing ? '车辆未与本应用配对' : detail.slice(0, 200)),
+          source: 'app',
+        });
+      } catch {}
       return json(res, ok ? 200 : 502, {
         ok,
         action,

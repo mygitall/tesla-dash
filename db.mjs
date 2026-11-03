@@ -71,6 +71,17 @@ CREATE TABLE IF NOT EXISTS trips (
 CREATE INDEX IF NOT EXISTS idx_trips_start ON trips(start_ts DESC);
 
 -- 一次充电
+CREATE TABLE IF NOT EXISTS actions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  label TEXT,
+  ok INTEGER NOT NULL,
+  detail TEXT,
+  source TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_actions_ts ON actions(ts DESC);
+
 CREATE TABLE IF NOT EXISTS charging (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   start_ts       INTEGER NOT NULL,
@@ -486,6 +497,28 @@ export function openDb(dir) {
           .map(([day, v]) => ({ day, ts: v.ts, battery: v.battery, rangeKm: Math.round(v.km * 10) / 10 }))
           .sort((a, b) => b.ts - a.ts)
           .slice(0, limit);
+      } catch { return []; }
+    },
+
+    /** 记录一次控制操作 */
+    insertAction({ ts, action, label, ok, detail, source }) {
+      try {
+        db.prepare(`INSERT INTO actions (ts, action, label, ok, detail, source) VALUES (?,?,?,?,?,?)`)
+          .run(ts, action, label || null, ok ? 1 : 0, (detail || '').slice(0, 300), source || 'app');
+        // 只保留最近 1000 条
+        db.prepare(`DELETE FROM actions WHERE id NOT IN (SELECT id FROM actions ORDER BY id DESC LIMIT 1000)`).run();
+        return true;
+      } catch { return false; }
+    },
+
+    /** 操作历史（新→旧） */
+    listActions(limit = 50, offset = 0) {
+      try {
+        const rows = db.prepare(`SELECT * FROM actions ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?`).all(limit, offset);
+        return rows.map((r) => ({
+          id: r.id, ts: r.ts, action: r.action, label: r.label,
+          ok: r.ok === 1, detail: r.detail || '', source: r.source || 'app',
+        }));
       } catch { return []; }
     },
 

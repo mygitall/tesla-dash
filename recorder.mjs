@@ -103,6 +103,16 @@ export function createRecorder({ db, api, intervalSec = 60, retentionDays = 90, 
       lockState.lastResult = res && res.ok ? 'ok' : 'failed';
       lockState.lastError = res && res.ok ? null : (res && res.message) || '未知错误';
       log(`[自动锁] 下发 lock → ${res && res.ok ? '✓ 成功' : '✗ 失败: ' + lockState.lastError}`);
+      try {
+        autoLock.recordAction?.({
+          ts: Math.floor(Date.now() / 1000),
+          action: 'auto-lock',
+          label: '离车自动上锁',
+          ok: !!(res && res.ok),
+          detail: res && res.ok ? '' : (lockState.lastError || ''),
+          source: 'auto',
+        });
+      } catch {}
       pushLockEvent({ type: res && res.ok ? 'locked' : 'failed', message: lockState.lastError });
     } catch (e) {
       lockState.lastResult = 'failed';
