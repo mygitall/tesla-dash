@@ -462,9 +462,11 @@ export function openDb(dir) {
       return {
         trips: t.trips || 0,
         tripsMi: t.distance_mi || 0,      // 行程记录里程
+        tripsSec: t.duration_sec || 0,    // 行程记录时长
         odoMi,                             // 里程表增量（含未记录短途）
         distanceMi: Math.max(t.distance_mi || 0, odoMi),
-        durationSec: Math.max(t.duration_sec || 0, sampleSec),
+        // 时长优先用行程记录；没行程时才用采样推的（避免出现 0 分钟但有里程）
+        durationSec: (t.duration_sec || 0) > 0 ? (t.duration_sec || 0) : sampleSec,
         batteryMin: s.bmin ?? null,
         batteryMax: s.bmax ?? null,
         dischargedPct,

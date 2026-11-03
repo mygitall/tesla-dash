@@ -1425,6 +1425,7 @@ const server = createServer(async (req, res) => {
           out.today = {
             distanceKm: Math.round(totalKm * 10) / 10,
             driveMinutes: Math.round(totalSec / 60),
+            durationKnown: totalSec > 0,
             energyKwh: Math.round(kwh * 10) / 10,
             energyEstimated,
             cost: Math.round(kwh * (SETTINGS.electricityPrice ?? ELECTRICITY_PRICE) * 100) / 100,
