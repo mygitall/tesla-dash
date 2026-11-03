@@ -1074,7 +1074,15 @@ const server = createServer(async (req, res) => {
     if (path === '/api/location/last') {
       const loc = store.lastLocation();
       if (!loc) return json(res, 200, { ok: false });
-      return json(res, 200, { ok: true, lat: loc.lat, lon: loc.lon, ts: loc.ts });
+      // 车辆上报的本地坐标系（中国境内为 GCJ-02）优先，避免地图偏移
+      const hasNative = loc.native_lat != null && loc.native_lon != null;
+      return json(res, 200, {
+        ok: true,
+        lat: hasNative ? loc.native_lat : loc.lat,
+        lon: hasNative ? loc.native_lon : loc.lon,
+        frame: hasNative ? 'gcj' : 'wgs',
+        ts: loc.ts,
+      });
     }
 
     /* ---------- 操作历史 ---------- */
