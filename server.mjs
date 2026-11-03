@@ -1070,6 +1070,31 @@ const server = createServer(async (req, res) => {
       }
     }
 
+    /* ---------- 上一次充电摘要 ---------- */
+    if (path === '/api/charge/last') {
+      try {
+        const row = store.lastChargeSession ? store.lastChargeSession() : null;
+        if (!row) return json(res, 200, { ok: false });
+        let fullKm = 430;
+        if (row.end_range_mi && row.end_battery && row.end_battery > 8) {
+          const km = (row.end_range_mi * 1.609344) / (row.end_battery / 100);
+          if (km > 250 && km < 700) fullKm = km;
+        }
+        const pct = (row.end_battery != null && row.start_battery != null)
+          ? row.end_battery - row.start_battery : null;
+        return json(res, 200, {
+          ok: true,
+          kwh: row.energy_added != null ? Math.round(row.energy_added * 10) / 10 : null,
+          addedKm: pct != null && pct > 0 ? Math.round((pct / 100) * fullKm) : null,
+          startBattery: row.start_battery,
+          endBattery: row.end_battery,
+          endTs: row.end_ts,
+        });
+      } catch (e) {
+        return json(res, 200, { ok: false, message: String(e.message || e) });
+      }
+    }
+
     /* ---------- 最后已知位置 ---------- */
     if (path === '/api/location/last') {
       const loc = store.lastLocation();

@@ -533,6 +533,13 @@ export function openDb(dir) {
       } catch { return null; }
     },
 
+    /** 最近一次充电会话（charging 表） */
+    lastChargeSession() {
+      try {
+        return db.prepare(`SELECT * FROM charging ORDER BY end_ts DESC LIMIT 1`).get() || null;
+      } catch { return null; }
+    },
+
     batterySeries(sinceTs) {
       return stmts.batterySeries.all(sinceTs);
     },
