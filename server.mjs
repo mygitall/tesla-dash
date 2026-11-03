@@ -791,8 +791,14 @@ async function askModel(question, contextObj) {
   const ctx = JSON.stringify(contextObj, null, 1).slice(0, 4000);
   const messages = [
     { role: 'system', content:
-      '你是车主的特斯拉用车助理。只能依据下面提供的 JSON 数据回答，不要编造。' +
-      '回答用简短中文（不超过 3 句），数字要带单位。数据不足时直接说"数据里看不出来"。' },
+      '你是车主的特斯拉用车助理。规则：\n' +
+      '1) 只回答与「这辆车、用车习惯、充电、能耗、保养」相关的问题；\n' +
+      '2) 凡是具体数字（里程/电量/花费/次数）必须来自下面的 JSON 数据，绝不编造，数据没有就说「数据里没有」；\n' +
+      '3) 建议类问题（充到多少、多久充一次、冬天续航、要不要每周充满）要给出明确可操作的建议，\n' +
+      '   可以引用通用电动车常识和下面 JSON 里的车况，但不要把通用建议说成是数据结论；\n' +
+      '4) 与车无关的问题（天气、新闻、写诗、编程、闲聊）用一句话礼貌拒绝，并提示可以问车的哪些方面；\n' +
+      '5) 问题含糊或只有一个字时，举例说明可以怎么问（例如「上个月总里程」「今日充电数据」）；\n' +
+      '6) 回答用简短中文，不超过 3 句，数字带单位。' },
     { role: 'user', content: `我的用车数据：\n${ctx}\n\n问题：${question}` },
   ];
   try {
@@ -1127,6 +1133,25 @@ const server = createServer(async (req, res) => {
       }
 
       const st = store.rangeStats ? store.rangeStats(since, until) : null;
+
+      // 当前车辆状态（从最新采样取，不依赖客户端传参）
+      const cur = (() => {
+        try {
+          const smp = (store.latestSample ? store.latestSample() : (store.lastSample ? store.lastSample() : null));
+          if (!smp) return null;
+          return {
+            电量百分比: smp.battery,
+            续航km: smp.range_mi != null ? Math.round(smp.range_mi * 1.609344) : null,
+            充电状态: smp.charging_state,
+            充电上限: smp.charge_limit,
+            里程表km: smp.odometer != null ? Math.round(smp.odometer * 1.609344) : null,
+            车内温度: smp.inside_temp,
+            车外温度: smp.outside_temp,
+            采样时间: new Date(smp.ts * 1000).toISOString(),
+          };
+        } catch { return null; }
+      })();
+      const batteryNote = 'LFP 磷酸铁锂电池：官方建议每周至少充满（100%）一次以校准电量估算，日常通勤充到 80~90% 即可。';
       const price = SETTINGS.electricityPrice ?? ELECTRICITY_PRICE;
       const km = st ? st.tripsKm : 0;
       const kwh = st ? Math.round((st.dischargePct / 100) * BATTERY_KWH * 10) / 10 : 0;
@@ -1154,6 +1179,8 @@ const server = createServer(async (req, res) => {
             return { 里程km: r.tripsKm, 行程数: r.trips, 耗电kWh: Math.round(r.dischargePct / 100 * BATTERY_KWH * 10) / 10, 充电次数: r.charges, 充电kWh: r.chargeKwh };
           } catch { return null; } })(),
           电价元每度: price, 电池容量kWh: BATTERY_KWH,
+          当前车辆状态: cur,
+          电池说明: batteryNote,
         };
         const ai = await askModel(q, ctx);
         if (ai) return json(res, 200, { ok: true, intent: 'ai', matched: true, label, answer: ai, source: 'ai' });
@@ -1221,7 +1248,8 @@ const server = createServer(async (req, res) => {
           })(),
           电价元每度: price,
           电池容量kWh: BATTERY_KWH,
-          当前: { 电量: body.battery ?? null, 续航km: body.rangeKm ?? null, 状态: body.state ?? null },
+          当前车辆状态: cur,
+          电池说明: batteryNote,
         };
         const ai = await askModel(q, ctx);
         if (ai) return json(res, 200, { ok: true, intent: 'ai', matched: true, label, answer: ai, source: 'ai' });
