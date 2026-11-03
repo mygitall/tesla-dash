@@ -449,6 +449,29 @@ export function openDb(dir) {
     listCharging(limit = 50, offset = 0) {
       return stmts.listCharging.all(limit, offset);
     },
+    /** 电池健康度：历次充满电（battery>=99）时的表显续航（km） */
+    fullChargeRangeHistory(limit = 20) {
+      try {
+        const rows = db.prepare(`
+          SELECT ts, battery, range_mi FROM samples
+          WHERE battery >= 99 AND range_mi IS NOT NULL AND range_mi > 0
+          ORDER BY ts DESC
+        `).all();
+        // 按天取最大值（一天可能充好几次，取最接近 100% 的那次）
+        const byDay = new Map();
+        for (const r of rows) {
+          const day = new Date(r.ts * 1000).toISOString().slice(0, 10);
+          const km = r.range_mi * 1.609344;
+          const prev = byDay.get(day);
+          if (!prev || km > prev.km) byDay.set(day, { ts: r.ts, battery: r.battery, km });
+        }
+        return [...byDay.entries()]
+          .map(([day, v]) => ({ day, ts: v.ts, battery: v.battery, rangeKm: Math.round(v.km * 10) / 10 }))
+          .sort((a, b) => b.ts - a.ts)
+          .slice(0, limit);
+      } catch { return []; }
+    },
+
     batterySeries(sinceTs) {
       return stmts.batterySeries.all(sinceTs);
     },

@@ -1032,6 +1032,26 @@ const server = createServer(async (req, res) => {
       }
     }
 
+    /* ---------- 电池健康度 ---------- */
+    if (path === '/api/charge/health') {
+      const nominal = Number(SETTINGS.nominalRangeKm || 435);   // 同款新车满电表显续航
+      const history = store.fullChargeRangeHistory(20);
+      let fullKm = null;
+      // 最近 3 次满充取最大（避免 99% 那次偏低的干扰）
+      if (history.length) {
+        const recent = history.slice(0, 3);
+        fullKm = Math.max(...recent.map((h) => h.rangeKm));
+      }
+      const healthPct = fullKm ? Math.round((fullKm / nominal) * 1000) / 10 : null;
+      return json(res, 200, {
+        ok: true,
+        nominalRangeKm: nominal,
+        fullRangeKm: fullKm ? Math.round(fullKm * 10) / 10 : null,
+        healthPct,
+        history,
+      });
+    }
+
     /* ---------- 充电曲线 ---------- */
     if (path === '/api/charge/curve') {
       let startTs = Number(url.searchParams.get('start'));
