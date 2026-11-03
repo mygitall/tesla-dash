@@ -1070,6 +1070,96 @@ const server = createServer(async (req, res) => {
       }
     }
 
+    /* ---------- 自然语言问答（规则引擎，无需 AI Key） ---------- */
+    if (path === '/api/ask' && req.method === 'POST') {
+      let body = {};
+      try { body = JSON.parse((await readBody(req)) || '{}'); } catch {}
+      const q = String(body.q || '').trim();
+      if (!q) return json(res, 400, { ok: false, error: 'EMPTY', answer: '想问点什么？比如「上个月总里程」' });
+
+      const cnNow = new Date(Date.now() + 8 * 3600 * 1000);
+      const y = cnNow.getUTCFullYear(), m = cnNow.getUTCMonth(), d = cnNow.getUTCDate();
+      const dayStart = Math.floor(Date.UTC(y, m, d) / 1000) - 8 * 3600;
+      const dayEnd = dayStart + 86400;
+
+      // 时间范围识别
+      let since = dayStart, until = dayEnd, label = '今天';
+      if (q.includes('昨天')) { since = dayStart - 86400; until = dayStart; label = '昨天'; }
+      else if (q.includes('上周') || q.includes('上一周')) { since = dayStart - 7 * 86400; until = dayStart; label = '过去 7 天'; }
+      else if (q.includes('本周') || q.includes('这周')) { const wd = (new Date(dayStart * 1000).getUTCDay() + 6) % 7; since = dayStart - wd * 86400; until = dayEnd; label = '本周'; }
+      else if (q.includes('上个月') || q.includes('上月')) {
+        const pm = m === 0 ? 11 : m - 1, py = m === 0 ? y - 1 : y;
+        since = Math.floor(Date.UTC(py, pm, 1) / 1000) - 8 * 3600;
+        until = Math.floor(Date.UTC(py, pm + 1, 1) / 1000) - 8 * 3600;
+        label = `上月（${py}-${String(pm + 1).padStart(2, '0')}）`;
+      } else if (q.includes('本月') || q.includes('这个月')) {
+        since = Math.floor(Date.UTC(y, m, 1) / 1000) - 8 * 3600;
+        until = dayEnd; label = '本月';
+      } else if (q.includes('今年') || q.includes('全年')) {
+        since = Math.floor(Date.UTC(y, 0, 1) / 1000) - 8 * 3600; until = dayEnd; label = '今年';
+      }
+
+      const st = store.rangeStats ? store.rangeStats(since, until) : null;
+      const price = SETTINGS.electricityPrice ?? ELECTRICITY_PRICE;
+      const km = st ? st.tripsKm : 0;
+      const kwh = st ? Math.round((st.dischargePct / 100) * BATTERY_KWH * 10) / 10 : 0;
+      const per100 = km > 0.5 ? Math.round((kwh / km) * 100 * 10) / 10 : null;
+      const hours = st ? Math.round(st.tripSec / 360) / 10 : 0;
+
+      // 意图匹配
+      let answer = null, intent = null;
+
+      if (/里程|开了多少|跑了多少|行驶/.test(q)) {
+        intent = 'distance';
+        if (km <= 0.05) answer = `${label}还没有记录到行驶里程。`;
+        else answer = `${label}共行驶 ${km} km${st && st.trips ? `（${st.trips} 段行程` + (hours > 0 ? `，约 ${hours} 小时` : '') + '）' : ''}。`;
+      } else if (/上次充电/.test(q)) {
+        intent = 'lastCharge';
+        try {
+          const row = store.lastChargeSession();
+          if (row) {
+            let fullKm = 430;
+            if (row.end_range_mi && row.end_battery && row.end_battery > 8) {
+              const g = (row.end_range_mi * 1.609344) / (row.end_battery / 100);
+              if (g > 250 && g < 700) fullKm = g;
+            }
+            const pct = (row.end_battery != null && row.start_battery != null) ? row.end_battery - row.start_battery : null;
+            const addKm = pct != null && pct > 0 ? Math.round(pct / 100 * fullKm) : null;
+            const t = new Date(row.end_ts * 1000 + 8 * 3600 * 1000);
+            answer = `上一次充电是 ${t.getUTCMonth() + 1} 月 ${t.getUTCDate()} 日 ${String(t.getUTCHours()).padStart(2,'0')}:${String(t.getUTCMinutes()).padStart(2,'0')}，`
+              + `${row.energy_added != null ? Math.round(row.energy_added * 10) / 10 : '?'} kWh`
+              + `${addKm ? `，续航增加约 ${addKm} km` : ''}`
+              + `${pct != null ? `（${row.start_battery}% → ${row.end_battery}%）` : ''}。`;
+          } else answer = '还没有充电记录。';
+        } catch { answer = '读取上次充电失败。'; }
+      } else if (/充电|充了多少|补能/.test(q)) {
+        intent = 'charge';
+        if (!st || st.charges === 0) answer = `${label}没有充电记录。`;
+        else answer = `${label}充电 ${st.charges} 次，共 ${st.chargeKwh} kWh，按 ${price} 元/度约 ${(st.chargeKwh * price).toFixed(1)} 元。`;
+      } else if (/能耗|电耗|百公里/.test(q)) {
+        intent = 'efficiency';
+        answer = per100 != null
+          ? `${label}耗电约 ${kwh} kWh，行驶 ${km} km，折合 ${per100} kWh/100km。`
+          : `${label}数据太少，还算不出百公里电耗。`;
+      } else if (/花费|花了多少|电费|多少钱/.test(q)) {
+        intent = 'cost';
+        answer = `${label}行驶耗电约 ${kwh} kWh，按 ${price} 元/度约 ${(kwh * price).toFixed(1)} 元。`;
+      } else if (/电池|健康|衰减/.test(q)) {
+        intent = 'battery';
+        answer = '电池健康度可以在「充电」页顶部查看：用最近几次充满的续航对比出厂值。';
+      }
+
+      if (!answer) {
+        return json(res, 200, {
+          ok: true, intent: 'unknown', matched: false,
+          answer: '我目前能回答这些：里程（今天/昨天/本周/本月/上月）、充电次数与度数、百公里电耗、花费、上次充电、电池健康。换个说法试试？',
+          suggestions: ['上个月总里程', '本月充电多少次', '今天电耗多少', '上次充电'],
+        });
+      }
+
+      return json(res, 200, { ok: true, intent, matched: true, label, answer });
+    }
+
     /* ---------- 上一次充电摘要 ---------- */
     if (path === '/api/charge/last') {
       try {

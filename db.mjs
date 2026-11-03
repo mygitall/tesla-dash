@@ -540,6 +540,37 @@ export function openDb(dir) {
       } catch { return null; }
     },
 
+    /** 任意时间区间的统计（供 AI 问答用） */
+    rangeStats(sinceTs, untilTs) {
+      const out = { tripsKm: 0, trips: 0, tripSec: 0, chargeKwh: 0, charges: 0, dischargePct: 0 };
+      try {
+        const t = db.prepare(`
+          SELECT COUNT(*) c, COALESCE(SUM(distance_mi),0) mi, COALESCE(SUM(end_ts-start_ts),0) sec
+          FROM trips WHERE start_ts >= ? AND start_ts < ?
+        `).get(sinceTs, untilTs) || {};
+        out.trips = t.c || 0;
+        out.tripsKm = Math.round((t.mi || 0) * 1.609344 * 10) / 10;
+        out.tripSec = t.sec || 0;
+      } catch {}
+      try {
+        const c = db.prepare(`
+          SELECT COUNT(*) c, COALESCE(SUM(energy_added),0) kwh
+          FROM charging WHERE end_ts >= ? AND end_ts < ?
+        `).get(sinceTs, untilTs) || {};
+        out.charges = c.c || 0;
+        out.chargeKwh = Math.round((c.kwh || 0) * 10) / 10;
+      } catch {}
+      try {
+        const r = db.prepare(`
+          WITH s AS (SELECT ts, battery, LAG(battery) OVER (ORDER BY ts) AS prev
+                     FROM samples WHERE ts >= ? AND ts < ? AND battery IS NOT NULL)
+          SELECT COALESCE(SUM(CASE WHEN battery < prev THEN prev - battery ELSE 0 END),0) d FROM s
+        `).get(sinceTs, untilTs) || {};
+        out.dischargePct = Number(r.d) || 0;
+      } catch {}
+      return out;
+    },
+
     batterySeries(sinceTs) {
       return stmts.batterySeries.all(sinceTs);
     },
