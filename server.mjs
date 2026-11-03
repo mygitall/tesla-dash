@@ -476,6 +476,10 @@ const store = openDb(DATA_DIR);
 // 电池容量与电价（用于估算剩余电量、今日花费）
 const BATTERY_KWH = Number(process.env.BATTERY_KWH || 75);
 const ELECTRICITY_PRICE = Number(process.env.ELECTRICITY_PRICE || 1.6);
+// 可选：接大模型做自由问答（不配则只用规则引擎）
+const AI_KEY = process.env.DEEPSEEK_API_KEY || '';
+const AI_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const AI_BASE = process.env.DEEPSEEK_BASE || 'https://api.deepseek.com';
 
 const SETTINGS_FILE = join(DATA_DIR, 'settings.json');
 const DEFAULT_SETTINGS = {
@@ -780,6 +784,29 @@ function lastChargeAddedKm(rangeKmNow, batteryNow) {
   } catch {}
   _addedKmCache = { ts: now, val };
   return val;
+}
+
+async function askModel(question, contextObj) {
+  if (!AI_KEY) return null;
+  const ctx = JSON.stringify(contextObj, null, 1).slice(0, 4000);
+  const messages = [
+    { role: 'system', content:
+      '你是车主的特斯拉用车助理。只能依据下面提供的 JSON 数据回答，不要编造。' +
+      '回答用简短中文（不超过 3 句），数字要带单位。数据不足时直接说"数据里看不出来"。' },
+    { role: 'user', content: `我的用车数据：\n${ctx}\n\n问题：${question}` },
+  ];
+  try {
+    const resp = await fetch(`${AI_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${AI_KEY}` },
+      body: JSON.stringify({ model: AI_MODEL, messages, temperature: 0.3, max_tokens: 300 }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!resp.ok) return null;
+    const j = await resp.json();
+    const txt = j?.choices?.[0]?.message?.content?.trim();
+    return txt || null;
+  } catch { return null; }
 }
 
 const CMD_SPECS = {
@@ -1109,6 +1136,29 @@ const server = createServer(async (req, res) => {
       // 意图匹配
       let answer = null, intent = null;
 
+      // 「为什么 / 怎么办 / 建议」类问题交给模型，规则只做数据查询
+      const needsReasoning = /为什么|为何|怎么|如何|原因|建议|正常吗|该不该|能不能|会不会|是否|值得/.test(q);
+      if (needsReasoning && AI_KEY) {
+        const ctx = {
+          今天: { 里程km: km, 行程数: st ? st.trips : 0, 耗电kWh: kwh, 充电次数: st ? st.charges : 0, 充电kWh: st ? st.chargeKwh : 0 },
+          本月: (() => { try {
+            const ms = Math.floor(Date.UTC(y, m, 1) / 1000) - 8 * 3600;
+            const r = store.rangeStats(ms, dayEnd);
+            return { 里程km: r.tripsKm, 行程数: r.trips, 耗电kWh: Math.round(r.dischargePct / 100 * BATTERY_KWH * 10) / 10, 充电次数: r.charges, 充电kWh: r.chargeKwh };
+          } catch { return null; } })(),
+          上月: (() => { try {
+            const pm = m === 0 ? 11 : m - 1, py = m === 0 ? y - 1 : y;
+            const a = Math.floor(Date.UTC(py, pm, 1) / 1000) - 8 * 3600;
+            const b = Math.floor(Date.UTC(py, pm + 1, 1) / 1000) - 8 * 3600;
+            const r = store.rangeStats(a, b);
+            return { 里程km: r.tripsKm, 行程数: r.trips, 耗电kWh: Math.round(r.dischargePct / 100 * BATTERY_KWH * 10) / 10, 充电次数: r.charges, 充电kWh: r.chargeKwh };
+          } catch { return null; } })(),
+          电价元每度: price, 电池容量kWh: BATTERY_KWH,
+        };
+        const ai = await askModel(q, ctx);
+        if (ai) return json(res, 200, { ok: true, intent: 'ai', matched: true, label, answer: ai, source: 'ai' });
+      }
+
       if (/里程|开了多少|跑了多少|行驶/.test(q)) {
         intent = 'distance';
         if (km <= 0.05) answer = `${label}还没有记录到行驶里程。`;
@@ -1150,6 +1200,31 @@ const server = createServer(async (req, res) => {
       }
 
       if (!answer) {
+        // 规则没命中 → 若配置了模型，交给模型（带聚合数据做上下文）
+        const ctx = {
+          今天: { 区间: label, 里程km: km, 行程数: st ? st.trips : 0, 耗电kWh: kwh, 充电次数: st ? st.charges : 0, 充电kWh: st ? st.chargeKwh : 0 },
+          本月: (() => {
+            try {
+              const ms = Math.floor(Date.UTC(y, m, 1) / 1000) - 8 * 3600;
+              const r = store.rangeStats(ms, dayEnd);
+              return { 里程km: r.tripsKm, 行程数: r.trips, 耗电kWh: Math.round(r.dischargePct / 100 * BATTERY_KWH * 10) / 10, 充电次数: r.charges, 充电kWh: r.chargeKwh };
+            } catch { return null; }
+          })(),
+          上月: (() => {
+            try {
+              const pm = m === 0 ? 11 : m - 1, py = m === 0 ? y - 1 : y;
+              const a = Math.floor(Date.UTC(py, pm, 1) / 1000) - 8 * 3600;
+              const b = Math.floor(Date.UTC(py, pm + 1, 1) / 1000) - 8 * 3600;
+              const r = store.rangeStats(a, b);
+              return { 里程km: r.tripsKm, 行程数: r.trips, 耗电kWh: Math.round(r.dischargePct / 100 * BATTERY_KWH * 10) / 10, 充电次数: r.charges, 充电kWh: r.chargeKwh, 花费元: Math.round(r.chargeKwh * price * 10) / 10 };
+            } catch { return null; }
+          })(),
+          电价元每度: price,
+          电池容量kWh: BATTERY_KWH,
+          当前: { 电量: body.battery ?? null, 续航km: body.rangeKm ?? null, 状态: body.state ?? null },
+        };
+        const ai = await askModel(q, ctx);
+        if (ai) return json(res, 200, { ok: true, intent: 'ai', matched: true, label, answer: ai, source: 'ai' });
         return json(res, 200, {
           ok: true, intent: 'unknown', matched: false,
           answer: '我目前能回答这些：里程（今天/昨天/本周/本月/上月）、充电次数与度数、百公里电耗、花费、上次充电、电池健康。换个说法试试？',
@@ -1157,7 +1232,7 @@ const server = createServer(async (req, res) => {
         });
       }
 
-      return json(res, 200, { ok: true, intent, matched: true, label, answer });
+      return json(res, 200, { ok: true, intent, matched: true, label, answer, source: 'rules' });
     }
 
     /* ---------- 上一次充电摘要 ---------- */

@@ -68,6 +68,23 @@
 | POST | `/api/recorder/wake` | `sec`(60~3600,默认900) | 进入高频采集窗口 |
 | POST | `/api/recorder/presence` | `sec`(60~1800,默认180) `present`(1/0) | 手机在场：抑制自动锁；`present=0` 立刻解除 |
 
+## 问答
+
+| 方法 | 路径 | 参数 | 说明 |
+|---|---|---|---|
+| POST | `/api/ask` | `q`(问题文本) | 自然语言查询。规则引擎精确统计；推理类问题（为什么/建议）在有 `DEEPSEEK_API_KEY` 时交给模型 |
+
+返回：`{ok, intent, matched, answer, source: "rules"|"ai", suggestions?}`
+
+启用模型（可选，写在 `.env`）：
+
+```
+DEEPSEEK_API_KEY=sk-xxxx
+DEEPSEEK_MODEL=deepseek-chat     # 可选，默认
+```
+
+**未配置 Key 时纯规则运行**，不联网、不外发数据。
+
 ## 记录
 
 | 方法 | 路径 | 参数 | 说明 |
