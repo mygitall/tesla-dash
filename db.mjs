@@ -522,6 +522,13 @@ export function openDb(dir) {
       } catch { return []; }
     },
 
+    /** 最近一次有坐标的采样（车休眠时 summary 里没有位置） */
+    lastLocation() {
+      try {
+        return db.prepare(`SELECT lat, lon, ts FROM samples WHERE lat IS NOT NULL AND lon IS NOT NULL ORDER BY ts DESC LIMIT 1`).get() || null;
+      } catch { return null; }
+    },
+
     batterySeries(sinceTs) {
       return stmts.batterySeries.all(sinceTs);
     },

@@ -1070,6 +1070,13 @@ const server = createServer(async (req, res) => {
       }
     }
 
+    /* ---------- 最后已知位置 ---------- */
+    if (path === '/api/location/last') {
+      const loc = store.lastLocation();
+      if (!loc) return json(res, 200, { ok: false });
+      return json(res, 200, { ok: true, lat: loc.lat, lon: loc.lon, ts: loc.ts });
+    }
+
     /* ---------- 操作历史 ---------- */
     if (path === '/api/actions') {
       const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 50));
