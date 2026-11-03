@@ -414,6 +414,20 @@ export function openDb(dir) {
 
       const odoMi = (s.a != null && s.b != null) ? Math.max(0, s.b - s.a) : 0;
 
+      // 今日放电：只累计「电池下降」的相邻样本，充电造成的上升不计入
+      let dischargedPct = 0;
+      try {
+        const r = db.prepare(`
+          WITH s AS (
+            SELECT ts, battery, LAG(battery) OVER (ORDER BY ts) AS prev
+            FROM samples WHERE ts >= ? AND battery IS NOT NULL
+          )
+          SELECT COALESCE(SUM(CASE WHEN battery < prev THEN prev - battery ELSE 0 END), 0) AS drop_pct
+          FROM s
+        `).get(sinceTs) || {};
+        dischargedPct = Number(r.drop_pct) || 0;
+      } catch {}
+
       // 行驶时长：按相邻样本的时间差累加（适配 20 秒/60 秒不同采样间隔）
       let sampleSec = 0;
       try {
@@ -442,6 +456,7 @@ export function openDb(dir) {
         durationSec: Math.max(t.duration_sec || 0, sampleSec),
         batteryMin: s.bmin ?? null,
         batteryMax: s.bmax ?? null,
+        dischargedPct,
       };
     },
 

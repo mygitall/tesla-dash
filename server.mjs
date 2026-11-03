@@ -501,6 +501,11 @@ function writeSettings(patch) {
   next.autoLock = !!next.autoLock;
   const d = Number(next.autoLockDelaySec);
   next.autoLockDelaySec = Number.isFinite(d) ? Math.min(600, Math.max(30, Math.round(d))) : 60;
+  // 电价：0.1 ~ 10 元/度，保留两位小数
+  const price = Number(next.electricityPrice);
+  next.electricityPrice = Number.isFinite(price) && price > 0
+    ? Math.min(10, Math.max(0.1, Math.round(price * 100) / 100))
+    : 1.6;
   mkdirSync(DATA_DIR, { recursive: true });
   writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), { mode: 0o600 });
   return next;
@@ -1342,10 +1347,12 @@ const server = createServer(async (req, res) => {
           // 没有电池数据时才退回里程估算，并统一标记为估算值
           let kwh = 0;
           let energyEstimated = true;
-          if (st.batteryMax != null && st.batteryMin != null && st.batteryMax > st.batteryMin) {
-            kwh = ((st.batteryMax - st.batteryMin) / 100) * BATTERY_KWH;
-          } else {
-            kwh = distKm * 0.15;
+          // 优先用「今日放电百分比」（只累计电池下降，充电不算消耗）
+          if (st.dischargedPct && st.dischargedPct > 0) {
+            kwh = (st.dischargedPct / 100) * BATTERY_KWH;
+            energyEstimated = false;      // 由真实电池数据推算，不算"拍脑袋估算"
+          } else if (distKm > 0) {
+            kwh = distKm * 0.15;          // 没有电池数据时才用里程估算
           }
           // 叠加「进行中的行程」，让首页数字实时增长（不用等停车 2 分钟）
           let openMi = 0, openSec = 0, openCount = 0;
@@ -1392,8 +1399,9 @@ const server = createServer(async (req, res) => {
         const patch = {};
         if ('autoLock' in body) patch.autoLock = !!body.autoLock;
         if ('autoLockDelaySec' in body) patch.autoLockDelaySec = body.autoLockDelaySec;
+        if ('electricityPrice' in body) patch.electricityPrice = body.electricityPrice;
         SETTINGS = writeSettings(patch);
-        console.log(`[设置] 离车自动锁=${SETTINGS.autoLock ? '开' : '关'} 延迟=${SETTINGS.autoLockDelaySec}s`);
+        console.log(`[设置] 离车自动锁=${SETTINGS.autoLock ? '开' : '关'} 延迟=${SETTINGS.autoLockDelaySec}s 电价=${SETTINGS.electricityPrice}元/度`);
         return json(res, 200, SETTINGS);
       }
       return json(res, 200, SETTINGS);
