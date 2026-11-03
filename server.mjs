@@ -563,7 +563,12 @@ const ACTION_LABELS = {
   'charge-start': '开始充电', 'charge-stop': '停止充电',
   honk: '鸣笛', flash: '闪灯',
   'sentry-on': '开哨兵', 'sentry-off': '关哨兵',
-  wake: '唤醒', 'trunk-open': '开后尾门', 'frunk-open': '开前备箱',
+  wake: '唤醒',
+  'trunk-open': '开后备箱', 'trunk-close': '关后备箱', 'frunk-open': '开前备箱',
+  flash: '闪灯', honk: '鸣笛',
+  'charge-start': '开始充电', 'charge-stop': '停止充电',
+  'windows-vent': '开窗通风', 'windows-close': '关车窗',
+  'set-temp': '调温', 'seat-heater': '座椅加热', 'steering-wheel-heater': '方向盘加热',
 };
 
 const recorder = createRecorder({
@@ -800,6 +805,20 @@ const CMD_SPECS = {
     if (b.state !== 'on' && b.state !== 'off') throw new Error('状态必须是 on 或 off');
     return ['steering-wheel-heater', b.state];
   },
+  // —— 车身与灯光 ——
+  'trunk-open':            () => ['trunk-open'],
+  'trunk-close':           () => ['trunk-close'],
+  'frunk-open':            () => ['frunk-open'],
+  'flash':                 () => ['flash-lights'],
+  'honk':                  () => ['honk'],
+  'sentry-on':             () => ['sentry-mode', 'on'],
+  'sentry-off':            () => ['sentry-mode', 'off'],
+  'charge-port-open':      () => ['charge-port-open'],
+  'charge-port-close':     () => ['charge-port-close'],
+  'charge-start':          () => ['charging-start'],
+  'charge-stop':           () => ['charging-stop'],
+  'windows-vent':          () => ['windows-vent'],
+  'windows-close':         () => ['windows-close'],
 };
 
 function runProcess(file, args, timeoutMs = 60000) {

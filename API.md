@@ -48,7 +48,16 @@
 |---|---|---|
 | POST | `/api/cmd/:action` | 执行控制指令，action 见下表 |
 
-常用 action：`lock` `unlock` `climate-on` `climate-off` `drive` `charge-port-open` `charge-port-close` `honk` `flash` `sentry-on` `sentry-off` `trunk-open` `frunk-open`
+常用 action：
+
+| 分类 | action |
+|---|---|
+| 车门 | `lock` `unlock` `drive` |
+| 空调 | `climate-on` `climate-off` `set-temp`(body: `{"temp":22}`) `seat-heater` `steering-wheel-heater` |
+| 车身 | `trunk-open` `trunk-close` `frunk-open` `windows-vent` `windows-close` |
+| 灯光 | `flash` `honk` |
+| 安全 | `sentry-on` `sentry-off` |
+| 充电 | `charge-port-open` `charge-port-close` `charge-start` `charge-stop` |
 
 返回：`{ok, action, code, message, needPairing, stdout, stderr}`
 
